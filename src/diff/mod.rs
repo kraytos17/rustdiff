@@ -1,5 +1,4 @@
-pub mod myers;
+pub mod core;
+pub mod data;
+pub mod modes;
 pub mod render;
-
-pub use myers::{DiffOp, compute_diff};
-pub use render::render_diff;

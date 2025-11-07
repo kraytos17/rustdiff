@@ -1,4 +1,4 @@
-use crate::diff::myers::DiffOp;
+use crate::diff::data::DiffOp;
 use std::fmt::Write;
 
 pub fn render_diff(diffs: &[DiffOp], color: bool, unified: usize) -> String {

@@ -2,15 +2,12 @@ mod cli;
 mod diff;
 mod fsio;
 
+use crate::diff::data::DiffOp;
 use clap::Parser;
 use cli::Cli;
-use diff::{compute_diff, render_diff};
+use diff::{core::compute_diff, render::render_diff};
 use fsio::read_lines;
-use std::fmt::Write as FmtWrite;
-use std::fs::File;
-use std::io::Write as IoWrite;
-use std::process;
-use std::string::String;
+use std::{fmt::Write as FmtWrite, fs::File, io::Write as IoWrite, process, string::String};
 
 fn main() {
     let opts = Cli::parse();
@@ -30,10 +27,11 @@ fn main() {
 
     if opts.summary {
         let (inserts, deletes) = diff.iter().fold((0, 0), |(i, d), op| match op {
-            diff::DiffOp::Insert(_) => (i + 1, d),
-            diff::DiffOp::Delete(_) => (i, d + 1),
-            diff::DiffOp::Equal(_) => (i, d),
+            DiffOp::Insert(_) => (i + 1, d),
+            DiffOp::Delete(_) => (i, d + 1),
+            DiffOp::Equal(_) => (i, d),
         });
+
         println!("Changes: +{inserts}, -{deletes}");
         return;
     }
