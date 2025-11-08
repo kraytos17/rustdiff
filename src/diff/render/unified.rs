@@ -32,7 +32,7 @@ pub fn render_unified_diff(old_name: &str, new_name: &str, diffs: &[DiffOp]) -> 
     out
 }
 
-/// Group the raw DiffOps into hunks with context lines.
+/// Group the raw [`DiffOp`]s into hunks with context lines.
 ///
 /// This approximates Git’s unified diff behavior.
 fn group_into_hunks(diffs: &[DiffOp], context: usize) -> Vec<Hunk> {

@@ -101,12 +101,10 @@ fn find_matching_insert(ops: &[DiffOp]) -> (usize, Option<&str>) {
                 return (i + 1, Some(text));
             }
             DiffOp::Equal(text) if text.trim().is_empty() => {
-                // Skip whitespace between delete and insert
                 skip_whitespace = true;
                 i += 1;
             }
             _ => {
-                // Non-whitespace equal or another delete - no matching insert
                 break;
             }
         }
@@ -115,27 +113,47 @@ fn find_matching_insert(ops: &[DiffOp]) -> (usize, Option<&str>) {
     (if skip_whitespace { i } else { 1 }, None)
 }
 
+fn split_trailing_space(s: &str) -> (&str, &str) {
+    let trimmed = s.trim_end_matches(|c: char| c.is_whitespace());
+    let space = &s[trimmed.len()..];
+    (trimmed, space)
+}
+
 fn render_grouped(buf: &mut String, old: &str, new: &str, color: bool) {
-    if color {
-        write!(buf, "{RED}[-{old}]{RESET}{GREEN}[+{new}]{RESET}").unwrap();
+    let (old_word, old_space) = split_trailing_space(old);
+    let (new_word, new_space) = split_trailing_space(new);
+    let space = if new_space.is_empty() {
+        old_space
     } else {
-        write!(buf, "[-{old}+{new}]").unwrap();
+        new_space
+    };
+
+    if color {
+        write!(
+            buf,
+            "{RED}[-{old_word}]{RESET}{GREEN}[+{new_word}]{RESET}{space}"
+        )
+        .unwrap();
+    } else {
+        write!(buf, "[-{old_word}+{new_word}]{space}").unwrap();
     }
 }
 
 fn render_insert(buf: &mut String, text: &str, color: bool) {
+    let (word, space) = split_trailing_space(text);
     if color {
-        write!(buf, "{GREEN}[+{text}]{RESET}").unwrap();
+        write!(buf, "{GREEN}[+{word}]{RESET}{space}").unwrap();
     } else {
-        write!(buf, "[+{text}]").unwrap();
+        write!(buf, "[+{word}]{space}").unwrap();
     }
 }
 
 fn render_delete(buf: &mut String, text: &str, color: bool) {
+    let (word, space) = split_trailing_space(text);
     if color {
-        write!(buf, "{RED}[-{text}]{RESET}").unwrap();
+        write!(buf, "{RED}[-{word}]{RESET}{space}").unwrap();
     } else {
-        write!(buf, "[-{text}]").unwrap();
+        write!(buf, "[-{word}]{space}").unwrap();
     }
 }
 
