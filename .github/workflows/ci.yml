@@ -75,6 +75,11 @@ jobs:
           cd target/x86_64-unknown-linux-gnu/release
           sha256sum rustdiff > rustdiff-linux-x86_64.sha256
 
+      - name: Rename binary for release
+        run: |
+          cd target/x86_64-unknown-linux-gnu/release
+          cp rustdiff rustdiff-${{ github.ref_name }}-linux-x86_64
+          
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
         with:
