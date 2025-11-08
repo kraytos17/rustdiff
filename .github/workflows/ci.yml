@@ -23,7 +23,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install latest stable rust
+      - name: Install latest stable Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
@@ -59,34 +59,30 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
 
-      - name: Build release binary
-        run: cargo build --release --target x86_64-unknown-linux-gnu
-
-      - name: Show binary size
-        run: ls -lh target/x86_64-unknown-linux-gnu/release/rustdiff
+      - name: Build and prepare release binary
+        run: |
+          cargo build --release --target x86_64-unknown-linux-gnu
+          cd target/x86_64-unknown-linux-gnu/release
+          cp rustdiff rustdiff-${{ github.ref_name }}-linux-x86_64
+          ls -lh rustdiff*
 
       - name: Compress with UPX
         run: |
           sudo apt-get update && sudo apt-get install -y upx
-          upx --best --lzma target/x86_64-unknown-linux-gnu/release/rustdiff
+          upx --best --lzma target/x86_64-unknown-linux-gnu/release/rustdiff-${{ github.ref_name }}-linux-x86_64
 
       - name: Generate SHA256 checksum
         run: |
           cd target/x86_64-unknown-linux-gnu/release
-          sha256sum rustdiff > rustdiff-linux-x86_64.sha256
+          sha256sum rustdiff-${{ github.ref_name }}-linux-x86_64 > rustdiff-${{ github.ref_name }}-linux-x86_64.sha256
 
-      - name: Rename binary for release
-        run: |
-          cd target/x86_64-unknown-linux-gnu/release
-          cp rustdiff rustdiff-${{ github.ref_name }}-linux-x86_64
-          
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
         with:
           name: rustdiff-linux-x86_64
           path: |
-            target/x86_64-unknown-linux-gnu/release/rustdiff
-            target/x86_64-unknown-linux-gnu/release/rustdiff-linux-x86_64.sha256
+            target/x86_64-unknown-linux-gnu/release/rustdiff-${{ github.ref_name }}-linux-x86_64
+            target/x86_64-unknown-linux-gnu/release/rustdiff-${{ github.ref_name }}-linux-x86_64.sha256
 
   release:
     name: Create GitHub Release
