@@ -1,8 +1,13 @@
 use std::fs::File;
-use std::io::{BufRead, BufReader, Result};
+use std::io::{Read, Result};
 
-pub fn read_lines(path: &str) -> Result<Vec<String>> {
-    let file = File::open(path)?;
-    let reader = BufReader::new(file);
-    reader.lines().collect()
+/// Read the entire file contents into a single UTF-8 string.
+///
+/// Useful for word-level or character-level diffs.
+pub fn read_file(path: &str) -> Result<String> {
+    let mut file = File::open(path)?;
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)?;
+
+    Ok(contents)
 }

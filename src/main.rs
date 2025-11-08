@@ -2,58 +2,88 @@ mod cli;
 mod diff;
 mod fsio;
 
-use crate::diff::data::DiffOp;
 use clap::Parser;
 use cli::Cli;
-use diff::{core::compute_diff, render::render_diff};
-use fsio::read_lines;
-use std::{fmt::Write as FmtWrite, fs::File, io::Write as IoWrite, process, string::String};
+use diff::data::DiffStats;
+use diff::modes::{diff_lines, diff_words};
+use diff::render::{render_line_diff, render_unified_diff, render_word_diff};
+use fsio::read_file;
+use std::{fs::File, io::Write, process};
 
 fn main() {
     let opts = Cli::parse();
-    let old_lines = read_lines(&opts.old_file).unwrap_or_else(|e| {
-        eprintln!("Error reading {}: {}", opts.old_file, e);
-        process::exit(1);
-    });
+    let old_text = read_or_exit(&opts.old_file);
+    let new_text = read_or_exit(&opts.new_file);
 
-    let new_lines = read_lines(&opts.new_file).unwrap_or_else(|e| {
-        eprintln!("Error reading {}: {}", opts.new_file, e);
-        process::exit(1);
-    });
-
-    let old_refs: Vec<&str> = old_lines.iter().map(String::as_str).collect();
-    let new_refs: Vec<&str> = new_lines.iter().map(String::as_str).collect();
-    let diff = compute_diff(&old_refs, &new_refs);
+    let diffs = if opts.word {
+        diff_words(&old_text, &new_text)
+    } else {
+        diff_lines(&old_text, &new_text)
+    };
 
     if opts.summary {
-        let (inserts, deletes) = diff.iter().fold((0, 0), |(i, d), op| match op {
-            DiffOp::Insert(_) => (i + 1, d),
-            DiffOp::Delete(_) => (i, d + 1),
-            DiffOp::Equal(_) => (i, d),
-        });
-
-        println!("Changes: +{inserts}, -{deletes}");
+        let stats = DiffStats::from_ops(&diffs);
+        println!(
+            "Changes: +{}, -{} (total {})",
+            stats.inserts, stats.deletes, stats.changes
+        );
         return;
     }
 
-    let rendered = render_diff(&diff, opts.color, opts.unified);
-    let mut output = String::new();
+    let rendered = if opts.word {
+        render_word_diff(&diffs, opts.color)
+    } else if opts.unified > 0 {
+        render_unified_diff(&opts.old_file, &opts.new_file, &diffs)
+    } else {
+        render_line_diff(&diffs, opts.color)
+    };
 
-    writeln!(output, "--- {}", opts.old_file).unwrap();
-    writeln!(output, "+++ {}", opts.new_file).unwrap();
-    writeln!(output, "@@").unwrap();
-    write!(output, "{rendered}").unwrap();
+    let rendered = if opts.compact {
+        compact_diff_output(&rendered)
+    } else {
+        rendered
+    };
 
-    let output_path = "changes.diff";
-    let mut file = File::create(output_path).unwrap_or_else(|e| {
-        eprintln!("Error creating {output_path}: {e}");
+    let output_path = &opts.output;
+    if let Err(e) = write_output(output_path, &rendered) {
+        eprintln!("Error writing diff to {output_path}: {e}");
         process::exit(1);
-    });
-
-    file.write_all(output.as_bytes()).unwrap_or_else(|e| {
-        eprintln!("Error writing diff: {e}");
-        process::exit(1);
-    });
+    }
 
     println!("Diff written to {output_path}");
+}
+
+fn read_or_exit(path: &str) -> String {
+    match read_file(path) {
+        Ok(content) => content,
+        Err(e) => {
+            eprintln!("Error reading {path}: {e}");
+            process::exit(1);
+        }
+    }
+}
+
+/// Write rendered diff output to a file.
+fn write_output(path: &str, contents: &str) -> std::io::Result<()> {
+    let mut file = File::create(path)?;
+    file.write_all(contents.as_bytes())
+}
+
+/// Compact diff output by removing unchanged sections.
+///
+/// Keeps only:
+/// - Lines starting with '+', '-'
+/// - Diff headers: '@@', '---', '+++'
+fn compact_diff_output(rendered: &str) -> String {
+    rendered
+        .lines()
+        .filter(|line| {
+            line.starts_with('+')
+                || line.starts_with('-')
+                || line.starts_with("@@")
+                || line.starts_with("---")
+                || line.starts_with("+++")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }

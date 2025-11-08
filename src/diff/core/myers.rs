@@ -8,6 +8,9 @@ use crate::diff::data::DiffOp;
 ///
 /// # Returns
 /// A vector of `DiffOp` representing insertions, deletions, and equal elements.
+///
+/// # Notes
+/// Uses safe indexing and works for both line and word-level diffing.
 pub fn compute_diff(a: &[&str], b: &[&str]) -> Vec<DiffOp> {
     let n = a.len();
     let m = b.len();
@@ -15,84 +18,115 @@ pub fn compute_diff(a: &[&str], b: &[&str]) -> Vec<DiffOp> {
     let mut v = vec![0isize; 2 * max + 1];
     let mut trace = Vec::new();
 
-    // Forward pass: build edit graph frontier
     for d in 0..=max {
-        trace.push(v.clone());
         for k in (-(d as isize)..=d as isize).step_by(2) {
             let index = (max as isize + k) as usize;
-
-            // Choose whether to go "down" (insert) or "right" (delete)
-            let x_start = if k == -(d as isize)
-                || (k != d as isize
-                    && v[(max as isize + k - 1) as usize] < v[(max as isize + k + 1) as usize])
-            {
-                v[(max as isize + k + 1) as usize] // down (insert)
-            } else {
-                v[(max as isize + k - 1) as usize] + 1 // right (delete)
+            let x_start = match (k == -(d as isize), k == d as isize) {
+                (true, _) => safe_get(&v, max, k + 1),     // Down (insert)
+                (_, true) => safe_get(&v, max, k - 1) + 1, // Right (delete)
+                _ => {
+                    let down = safe_get(&v, max, k + 1);
+                    let right = safe_get(&v, max, k - 1);
+                    if right < down {
+                        down // Insert
+                    } else {
+                        right + 1 // Delete
+                    }
+                }
             };
 
             let mut x = x_start;
             let mut y = x - k;
-
-            // Follow diagonal (equal items)
             while x < n as isize && y < m as isize && a[x as usize] == b[y as usize] {
                 x += 1;
                 y += 1;
             }
 
             v[index] = x;
-
-            // ✅ Found the end of the path (exact, not >=)
             if x == n as isize && y == m as isize {
+                trace.push(v.clone());
                 return backtrack(&trace, a, b);
             }
         }
+
+        trace.push(v.clone());
     }
 
-    unreachable!("Myers diff algorithm failed — this should never happen");
+    unreachable!("Myers diff algorithm failed — unexpected termination");
 }
 
+/// Backtrack through the trace to reconstruct the diff operations.
 fn backtrack(trace: &[Vec<isize>], a: &[&str], b: &[&str]) -> Vec<DiffOp> {
-    let n = a.len();
-    let m = b.len();
-    let max = n + m;
-    let mut x = n as isize;
-    let mut y = m as isize;
+    let n = a.len() as isize;
+    let m = b.len() as isize;
+    let max = (n + m) as usize;
+    let mut x = n;
+    let mut y = m;
     let mut diffs = Vec::new();
 
-    for (d, v) in trace.iter().enumerate().rev() {
+    let zero_vec = vec![0isize; 2 * max + 1];
+
+    for (d, _) in trace.iter().enumerate().rev() {
+        let prev_v = if d == 0 { &zero_vec } else { &trace[d - 1] };
         let k = x - y;
-        let index = (max as isize + k) as usize;
-        let (prev_k, x_start);
-        if k == -(d as isize) || (k != d as isize && v[index - 1] < v[index + 1]) {
-            prev_k = k + 1;
-            x_start = v[(max as isize + prev_k) as usize];
+        let k_clamped = k.clamp(-(d as isize), d as isize);
+        let down_x = safe_get(prev_v, max, k_clamped + 1);
+        let right_x = safe_get(prev_v, max, k_clamped - 1);
+
+        let came_from_insert = if k == -(d as isize) {
+            true
+        } else if k == d as isize {
+            false
         } else {
-            prev_k = k - 1;
-            x_start = v[(max as isize + prev_k) as usize] + 1;
-        }
+            right_x < down_x
+        };
+
+        let (prev_k, x_start) = if came_from_insert {
+            (k + 1, down_x)
+        } else {
+            (k - 1, right_x + 1)
+        };
 
         let y_start = x_start - prev_k;
-        let x_mid = x_start;
-        let y_mid = y_start;
 
-        // Follow diagonal back (equal lines)
-        while x > x_mid && y > y_mid {
+        // Trace equal diagonal elements safely
+        while x > x_start && y > y_start && x > 0 && y > 0 {
             diffs.push(DiffOp::Equal(a[(x - 1) as usize].to_string()));
             x -= 1;
             y -= 1;
         }
 
-        // Insert / delete step
-        if x_mid < x {
-            diffs.push(DiffOp::Delete(a[(x_mid) as usize].to_string()));
+        // Handle deletions
+        if x > x_start && x > 0 {
+            diffs.push(DiffOp::Delete(a[(x - 1) as usize].to_string()));
             x -= 1;
-        } else if y_mid < y {
-            diffs.push(DiffOp::Insert(b[(y_mid) as usize].to_string()));
+        }
+
+        // Handle insertions
+        if y > y_start && y > 0 {
+            diffs.push(DiffOp::Insert(b[(y - 1) as usize].to_string()));
             y -= 1;
         }
     }
 
+    // Handle any remaining items
+    while x > 0 {
+        diffs.push(DiffOp::Delete(a[(x - 1) as usize].to_string()));
+        x -= 1;
+    }
+    while y > 0 {
+        diffs.push(DiffOp::Insert(b[(y - 1) as usize].to_string()));
+        y -= 1;
+    }
+
     diffs.reverse();
     diffs
+}
+
+/// Safe index access for `v` that clamps out-of-range accesses.
+/// Returns 0 if the index is invalid.
+#[inline]
+fn safe_get(v: &[isize], max: usize, k: isize) -> isize {
+    let idx = max.wrapping_add_signed(k);
+    v.get(idx).copied().unwrap_or(0)
 }
