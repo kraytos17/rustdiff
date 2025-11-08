@@ -58,11 +58,10 @@ pub struct Cli {
     #[arg(
         short = 'u',
         long = "unified",
-        default_value_t = 3,
         value_name = "N",
-        help = "Number of context lines in unified diff (default: 3)"
+        help = "Number of context lines in unified diff"
     )]
-    pub unified: usize,
+    pub unified: Option<usize>,
 
     /// Hide unchanged lines in output (compact mode)
     #[arg(

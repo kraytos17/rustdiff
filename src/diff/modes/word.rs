@@ -1,7 +1,6 @@
-use regex::Regex;
-
 use crate::diff::core::patience::compute_patience_diff;
 use crate::diff::data::DiffOp;
+use regex::Regex;
 
 /// Compute a word-aware diff between two texts and return `Vec<DiffOp>`.
 ///

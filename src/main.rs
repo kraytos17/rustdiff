@@ -15,6 +15,17 @@ fn main() {
     let old_text = read_or_exit(&opts.old_file);
     let new_text = read_or_exit(&opts.new_file);
 
+    if opts.word && opts.unified.is_some() {
+        eprintln!("Error: --word and --unified flags cannot be used together.");
+        eprintln!("The --unified format is strictly line-based.");
+        process::exit(1);
+    }
+    if opts.word && opts.compact {
+        eprintln!("Error: --compact mode is not compatible with --word diff.");
+        eprintln!("Tip: --compact only filters unchanged *lines*, not words.");
+        process::exit(1);
+    }
+
     let diffs = if opts.word {
         diff_words(&old_text, &new_text)
     } else {
@@ -32,8 +43,8 @@ fn main() {
 
     let rendered = if opts.word {
         render_word_diff(&diffs, opts.color)
-    } else if opts.unified > 0 {
-        render_unified_diff(&opts.old_file, &opts.new_file, &diffs)
+    } else if let Some(context_lines) = opts.unified {
+        render_unified_diff(&opts.old_file, &opts.new_file, &diffs, context_lines)
     } else {
         render_line_diff(&diffs, opts.color)
     };
@@ -63,7 +74,6 @@ fn read_or_exit(path: &str) -> String {
     }
 }
 
-/// Write rendered diff output to a file.
 fn write_output(path: &str, contents: &str) -> std::io::Result<()> {
     let mut file = File::create(path)?;
     file.write_all(contents.as_bytes())

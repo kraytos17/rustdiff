@@ -19,8 +19,8 @@ pub fn compute_patience_diff(a: &[&str], b: &[&str]) -> Vec<DiffOp> {
         if ai > last_a || bi > last_b {
             let mut sub_diff = compute_diff(&a[last_a..ai], &b[last_b..bi]);
             sub_diff.retain(|op| match op {
-                DiffOp::Insert(s) | DiffOp::Delete(s) => !s.trim().is_empty(),
-                DiffOp::Equal(_) => true,
+                DiffOp::Insert(s) => !s.trim().is_empty(),
+                DiffOp::Equal(_) | DiffOp::Delete(_) => true,
             });
 
             if !sub_diff.is_empty() {
@@ -36,8 +36,8 @@ pub fn compute_patience_diff(a: &[&str], b: &[&str]) -> Vec<DiffOp> {
     if last_a < a.len() || last_b < b.len() {
         let mut sub_diff = compute_diff(&a[last_a..], &b[last_b..]);
         sub_diff.retain(|op| match op {
-            DiffOp::Insert(s) | DiffOp::Delete(s) => !s.trim().is_empty(),
-            DiffOp::Equal(_) => true,
+            DiffOp::Insert(s) => !s.trim().is_empty(),
+            DiffOp::Equal(_) | DiffOp::Delete(_) => true,
         });
 
         if !sub_diff.is_empty() {
@@ -125,4 +125,206 @@ fn longest_increasing_subsequence(pairs: &[(usize, usize)]) -> Vec<(usize, usize
     }
 
     lis
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::diff::data::DiffOp;
+    use std::collections::HashMap;
+
+    fn s<'a>(seq: &'a [&'a str]) -> Vec<&'a str> {
+        seq.to_vec()
+    }
+
+    /// Apply a diff to the original sequence to reconstruct the target.
+    /// This will panic if the diff is invalid.
+    fn apply_diff(a: &[&str], diff: &[DiffOp]) -> Vec<String> {
+        let mut result = Vec::new();
+        let mut ai = 0;
+        for op in diff {
+            match op {
+                DiffOp::Equal(s) => {
+                    assert_eq!(
+                        Some(s.as_str()),
+                        a.get(ai).copied(),
+                        "Equal operation mismatched original sequence at index {}",
+                        ai
+                    );
+                    result.push(s.clone());
+                    ai += 1;
+                }
+                DiffOp::Insert(s) => result.push(s.clone()),
+                DiffOp::Delete(s) => {
+                    assert_eq!(
+                        Some(s.as_str()),
+                        a.get(ai).copied(),
+                        "Delete operation removed wrong element at index {}",
+                        ai
+                    );
+                    ai += 1;
+                }
+            }
+        }
+        result
+    }
+
+    #[test]
+    fn test_count_freq() {
+        let seq = s(&["a", "b", "a", "c", "a", "b"]);
+        let freq = count_freq(&seq);
+        let mut expected = HashMap::new();
+        expected.insert("a", 3);
+        expected.insert("b", 2);
+        expected.insert("c", 1);
+        assert_eq!(freq, expected);
+    }
+
+    #[test]
+    fn test_lis_empty() {
+        let pairs = vec![];
+        assert_eq!(longest_increasing_subsequence(&pairs), vec![]);
+    }
+
+    #[test]
+    fn test_lis_single() {
+        let pairs = vec![(1, 1)];
+        assert_eq!(longest_increasing_subsequence(&pairs), vec![(1, 1)]);
+    }
+
+    #[test]
+    fn test_lis_all_increasing() {
+        let pairs = vec![(1, 1), (2, 2), (3, 3)];
+        assert_eq!(longest_increasing_subsequence(&pairs), pairs);
+    }
+
+    #[test]
+    fn test_lis_all_decreasing() {
+        let pairs = vec![(1, 3), (2, 2), (3, 1)];
+        let lis = longest_increasing_subsequence(&pairs);
+        assert_eq!(lis.len(), 1);
+        assert!(pairs.contains(&lis[0]));
+    }
+
+    #[test]
+    fn test_lis_standard_case() {
+        let pairs = vec![
+            (0, 8),
+            (1, 4),
+            (2, 12),
+            (3, 2),
+            (4, 10),
+            (5, 6),
+            (6, 14),
+            (7, 1),
+            (8, 9),
+        ];
+
+        let expected = vec![(3, 2), (5, 6), (8, 9)];
+        assert_eq!(longest_increasing_subsequence(&pairs), expected);
+    }
+
+    #[test]
+    fn test_find_anchors_simple() {
+        let a = s(&["a", "b", "c"]);
+        let b = s(&["x", "b", "y"]);
+        let expected = vec![(1, 1)];
+        assert_eq!(find_unique_anchors(&a, &b), expected);
+    }
+
+    #[test]
+    fn test_find_anchors_none() {
+        let a = s(&["a", "b", "c"]);
+        let b = s(&["x", "y", "z"]);
+        assert!(find_unique_anchors(&a, &b).is_empty());
+    }
+
+    #[test]
+    fn test_find_anchors_non_unique() {
+        let a = s(&["a", "x", "a"]);
+        let b = s(&["a", "y", "a"]);
+        assert!(find_unique_anchors(&a, &b).is_empty());
+    }
+
+    #[test]
+    fn test_find_anchors_lis_filter() {
+        let a = s(&["a", "b", "c"]);
+        let b = s(&["c", "b", "a"]);
+        let anchors = find_unique_anchors(&a, &b);
+        assert_eq!(anchors.len(), 1);
+    }
+
+    #[test]
+    fn test_patience_identical() {
+        let a = s(&["a", "b", "c"]);
+        let b = s(&["a", "b", "c"]);
+        let diff = compute_patience_diff(&a, &b);
+        assert_eq!(apply_diff(&a, &diff), b);
+        assert!(diff.iter().all(|op| matches!(op, DiffOp::Equal(_))));
+    }
+
+    #[test]
+    fn test_patience_no_anchors() {
+        let a = s(&["a", "b", "c"]);
+        let b = s(&["x", "y", "z"]);
+        let diff = compute_patience_diff(&a, &b);
+        assert_eq!(apply_diff(&a, &diff), b);
+    }
+
+    #[test]
+    fn test_patience_simple_anchor() {
+        let a = s(&["a", "b", "c"]);
+        let b = s(&["a", "X", "c"]);
+        let diff = compute_patience_diff(&a, &b);
+        assert_eq!(apply_diff(&a, &diff), b);
+        let expected = vec![
+            DiffOp::Equal("a".to_string()),
+            DiffOp::Delete("b".to_string()),
+            DiffOp::Insert("X".to_string()),
+            DiffOp::Equal("c".to_string()),
+        ];
+
+        assert_eq!(diff, expected);
+    }
+
+    #[test]
+    fn test_patience_multiple_anchors() {
+        let a = s(&["a", "b", "c", "d", "e"]);
+        let b = s(&["a", "X", "c", "Y", "e"]);
+        let diff = compute_patience_diff(&a, &b);
+        assert_eq!(apply_diff(&a, &diff), b);
+        let expected = vec![
+            DiffOp::Equal("a".to_string()),
+            DiffOp::Delete("b".to_string()),
+            DiffOp::Insert("X".to_string()),
+            DiffOp::Equal("c".to_string()),
+            DiffOp::Delete("d".to_string()),
+            DiffOp::Insert("Y".to_string()),
+            DiffOp::Equal("e".to_string()),
+        ];
+
+        assert_eq!(diff, expected);
+    }
+
+    #[test]
+    fn test_patience_out_of_order_anchor() {
+        let a = s(&["a", "b", "c"]);
+        let b = s(&["c", "b", "a"]);
+        let diff = compute_patience_diff(&a, &b);
+        assert_eq!(apply_diff(&a, &diff), b);
+    }
+
+    #[test]
+    fn test_patience_whitespace_filter_simple() {
+        let a = s(&["a", " ", "b"]);
+        let b = s(&["a", "\t", "b"]);
+        let diff = compute_patience_diff(&a, &b);
+        let expected = vec![
+            DiffOp::Equal("a".to_string()),
+            DiffOp::Delete(" ".to_string()),
+            DiffOp::Equal("b".to_string()),
+        ];
+
+        assert_eq!(diff, expected);
+    }
 }
