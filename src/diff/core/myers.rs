@@ -69,7 +69,6 @@ fn backtrack(trace: &[Vec<isize>], a: &[&str], b: &[&str]) -> Vec<DiffOp> {
         // Find the 'v' from the previous step (d-1)
         let prev_v = if d == 0 { &zero_vec } else { &trace[d - 1] };
         let k = x - y;
-        
         let down_x = safe_get(prev_v, max, k + 1);
         let right_x = safe_get(prev_v, max, k - 1);
         let came_from_insert = if k == -(d as isize) {

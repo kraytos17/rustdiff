@@ -4,6 +4,7 @@ use clap::{ArgAction, ArgGroup, Parser, ValueHint};
 ///
 /// Supports line- and word-level modes, colorized output, compact diffs,
 /// and unified diff formatting with context lines.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Parser, Debug)]
 #[command(
     author = "Soumil Kumar",
@@ -14,6 +15,11 @@ use clap::{ArgAction, ArgGroup, Parser, ValueHint};
     group(
         ArgGroup::new("mode")
             .args(["line", "word"])
+            .required(false)
+    ),
+    group(
+        ArgGroup::new("output_format")
+            .args(["unified", "compact", "summary"])
             .required(false)
     )
 )]
