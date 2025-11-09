@@ -2,11 +2,13 @@ mod cli;
 mod diff;
 mod fsio;
 
+use crate::diff::data::DiffStats;
+use crate::diff::modes::{diff_lines, diff_words};
+use crate::diff::render::{
+    render_line_diff, render_unified_diff, render_word_diff, write_diff_outputs,
+};
 use clap::Parser;
 use cli::Cli;
-use diff::data::DiffStats;
-use diff::modes::{diff_lines, diff_words};
-use diff::render::{render_line_diff, render_unified_diff, render_word_diff};
 use fsio::read_file;
 use std::{fs::File, io::Write, process};
 
@@ -44,21 +46,31 @@ fn main() {
     let rendered = if opts.word {
         render_word_diff(&diffs, opts.color)
     } else if let Some(context_lines) = opts.unified {
-        render_unified_diff(&opts.old_file, &opts.new_file, &diffs, context_lines)
+        render_unified_diff(
+            &opts.old_file,
+            &opts.new_file,
+            &diffs,
+            context_lines,
+            opts.color,
+        )
+    } else if opts.compact {
+        render_unified_diff(&opts.old_file, &opts.new_file, &diffs, 0, opts.color)
     } else {
         render_line_diff(&diffs, opts.color)
-    };
-
-    let rendered = if opts.compact {
-        compact_diff_output(&rendered)
-    } else {
-        rendered
     };
 
     let output_path = &opts.output;
     if let Err(e) = write_output(output_path, &rendered) {
         eprintln!("Error writing diff to {output_path}: {e}");
         process::exit(1);
+    }
+    if opts.html {
+        let base_name = output_path.trim_end_matches(".diff");
+        if let Err(e) = write_diff_outputs(&rendered, base_name) {
+            eprintln!("Error generating HTML diff: {e}");
+        } else {
+            println!("HTML diff exported to {base_name}.html");
+        }
     }
 
     println!("Diff written to {output_path}");
@@ -79,21 +91,21 @@ fn write_output(path: &str, contents: &str) -> std::io::Result<()> {
     file.write_all(contents.as_bytes())
 }
 
-/// Compact diff output by removing unchanged sections.
-///
-/// Keeps only:
-/// - Lines starting with '+', '-'
-/// - Diff headers: '@@', '---', '+++'
-fn compact_diff_output(rendered: &str) -> String {
-    rendered
-        .lines()
-        .filter(|line| {
-            line.starts_with('+')
-                || line.starts_with('-')
-                || line.starts_with("@@")
-                || line.starts_with("---")
-                || line.starts_with("+++")
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
+// /// Compact diff output by removing unchanged sections.
+// ///
+// /// Keeps only:
+// /// - Lines starting with '+', '-'
+// /// - Diff headers: '@@', '---', '+++'
+// fn compact_diff_output(rendered: &str) -> String {
+//     rendered
+//         .lines()
+//         .filter(|line| {
+//             line.starts_with('+')
+//                 || line.starts_with('-')
+//                 || line.starts_with("@@")
+//                 || line.starts_with("---")
+//                 || line.starts_with("+++")
+//         })
+//         .collect::<Vec<_>>()
+//         .join("\n")
+// }

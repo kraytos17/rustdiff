@@ -100,4 +100,8 @@ pub struct Cli {
         help = "Use line-level diff (default mode)"
     )]
     pub line: bool,
+
+    /// Export the diff as HTML
+    #[arg(long, help = "Also generate a colorized HTML diff output")]
+    pub html: bool,
 }
