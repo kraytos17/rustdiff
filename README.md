@@ -1,63 +1,92 @@
 # rustdiff
 
-A fast, human‑readable diff generator written in pure Rust. Supports line, word, and unified diff formats with optional ANSI color output.
+Fast, human‑readable text diffs in pure Rust. Supports line and word modes, unified output with adjustable context, ANSI colors, and HTML export.
+
+- Entry point: [`main`](src/main.rs)
+- CLI definition: [`cli::Cli`](src/cli.rs)
 
 ## Features
 
-- Line diffs via Patience + Myers fallback: [`diff::modes::diff_lines`](src/diff/modes/line.rs)
-- Word diffs with custom tokenizer: [`diff::modes::diff_words`](src/diff/modes/word.rs)
-- Unified diff rendering (hunks + context): [`diff::render::render_unified_diff`](src/diff/render/unified.rs)
-- Plain line diff rendering: [`diff::render::render_line_diff`](src/diff/render/line.rs)
-- Inline word replacement markup: [`diff::render::render_word_diff`](src/diff/render/word.rs)
-- Summary stats: [`diff::data::DiffStats`](src/diff/data.rs)
-- Patience diff implementation: [`diff::core::patience::compute_patience_diff`](src/diff/core/patience.rs)
-- Myers O(ND) core algorithm: [`diff::core::myers::compute_diff`](src/diff/core/myers.rs)
-- Compact output mode (only changes)
-- Color output (ANSI)
+- Line diffs (Patience + Myers): [`diff::modes::diff_lines`](src/diff/modes/line.rs)
+- Word diffs with inline replacements: [`diff::modes::diff_words`](src/diff/modes/word.rs)
+- Unified diff with context lines and headers: [`diff::render::render_unified_diff`](src/diff/render/unified.rs)
+- Plain line rendering: [`diff::render::render_line_diff`](src/diff/render/line.rs)
+- Inline word replacement markup and colors: [`diff::render::render_word_diff`](src/diff/render/word.rs)
+- HTML export from ANSI output: [`diff::render::write_diff_outputs`](src/diff/render/mod.rs)
+- Stats: [`diff::data::DiffStats`](src/diff/data.rs)
+- Core algorithms:
+  - Patience (unique anchors + LIS): [`diff::core::patience::compute_patience_diff`](src/diff/core/patience.rs)
+  - Myers O(ND) minimal edit script: [`diff::core::myers::compute_diff`](src/diff/core/myers.rs)
 
-## Installation
+Data types:
+- Ops: [`diff::data::DiffOp`](src/diff/data.rs) = Equal(String) | Insert(String) | Delete(String)
+- Unified hunks: [`diff::data::Hunk`](src/diff/data.rs)
 
-Build from source:
+## Install
+
+From source:
 
 ```sh
-git clone <repo>
-cd rustdiff
 cargo build --release
 ```
 
-Binary will be in `target/release/rustdiff`.
-
-## CLI Usage
-
-Entry point: [`main`](src/main.rs) using Clap definition in [`cli::Cli`](src/cli.rs).
+Binary at `target/release/rustdiff`. Or run in place:
 
 ```sh
-rustdiff <OLD> <NEW> [options]
+cargo run -- <OLD> <NEW> [flags]
 ```
 
-Options:
+Rust edition: see [Cargo.toml](Cargo.toml).
 
-| Flag | Purpose |
-|------|---------|
-| `--word` | Word-level diff |
-| `--line` | Line-level diff (default) |
-| `-u, --unified N` | Unified diff with N context lines (default 3) |
-| `--compact` | Remove unchanged lines (keep +, -, headers) |
-| `--color` | Enable ANSI color |
-| `--summary` | Print only counts |
-| `-o, --output FILE` | Write diff (default: changes.diff) |
+## CLI
 
-Examples:
+Synopsis:
 
 ```sh
-rustdiff old.txt new.txt --word --color --compact -o diff.txt
+rustdiff <OLD> <NEW> [flags]
+```
+
+Common flags (see [`cli::Cli`](src/cli.rs)):
+- --line: line-level diff (default)
+- --word: word-level diff
+- -u, --unified N: unified diff with N context lines
+- --compact: only changes (implemented as unified with 0 context)
+- --color: enable ANSI colors
+- --summary: only print counts
+- -o, --output FILE: write to file (default: changes.diff)
+- --html: also generate HTML next to .diff
+
+Compatibility checks in [`main`](src/main.rs):
+- --word cannot be combined with --unified
+- --word cannot be combined with --compact
+
+### Examples
+
+```sh
+# Line diff (plain)
+rustdiff old.txt new.txt
+
+# Unified with 5 lines of context and color
 rustdiff old.txt new.txt -u 5 --color
+
+# Word-level inline replacements with color
+rustdiff old.txt new.txt --word --color
+
+# Compact (only +/- and headers)
+rustdiff old.txt new.txt --compact
+
+# Summary only
 rustdiff old.txt new.txt --summary
+
+# Write to custom file and export HTML
+rustdiff old.txt new.txt --color -o my.diff --html
 ```
 
-## Output Examples
+If `--html` is set, an HTML file is written next to the diff via [`diff::render::write_diff_outputs`](src/diff/render/mod.rs). The converter numbers lines and transforms ANSI sequences using ansi-to-html.
 
-Line diff:
+## Output examples
+
+Line diff ([`diff::render::render_line_diff`](src/diff/render/line.rs)):
 
 ```
   unchanged line
@@ -65,94 +94,96 @@ Line diff:
 + added line
 ```
 
-Unified diff:
+Unified ([`diff::render::render_unified_diff`](src/diff/render/unified.rs)):
 
 ```
 --- old.txt
 +++ new.txt
-@@ -10,4 +10,5 @@
-  context
+@@ -10,2 +10,3 @@
 -context removed
 +context added
++new line
 ```
 
-Word diff inline (replacement grouping):
+Word inline ([`diff::render::render_word_diff`](src/diff/render/word.rs)):
 
 ```
 The quick [-brown+red] fox [+swiftly] jumps
 ```
 
-With color enabled, insertions are green, deletions red.
+With `--color`, deletions are red and insertions green.
 
-## Library Use
+## Programmatic use (internal modules)
 
-Operations produce `Vec<DiffOp>` where [`DiffOp`](src/diff/data.rs) = `Equal(String) | Insert(String) | Delete(String)`.
+The binary exposes internal modules that you can call from within this crate:
 
-Flow:
+```rs
+use rustdiff::diff::modes::{diff_lines, diff_words};
+use rustdiff::diff::render::{render_line_diff, render_unified_diff, render_word_diff};
+use rustdiff::diff::data::DiffStats;
 
-1. Tokenize: [`diff_lines`](src/diff/modes/line.rs) or [`diff_words`](src/diff/modes/word.rs)
-2. Generate ops (Patience anchors + Myers fallback)
-3. Render: line / word / unified
-4. Optional stats: [`DiffStats::from_ops`](src/diff/data.rs)
+let ops = diff_lines("a\nb\n", "a\nX\n");
+let text = render_unified_diff("old", "new", &ops, 3, true);
+let stats = DiffStats::from_ops(&ops);
+```
+
+Key APIs:
+- [`diff::modes::diff_lines`](src/diff/modes/line.rs)
+- [`diff::modes::diff_words`](src/diff/modes/word.rs)
+- [`diff::render::render_unified_diff`](src/diff/render/unified.rs)
+- [`diff::render::render_line_diff`](src/diff/render/line.rs)
+- [`diff::render::render_word_diff`](src/diff/render/word.rs)
+- [`diff::data::DiffStats`](src/diff/data.rs)
 
 ## Algorithms
 
-Patience diff:
-- Unique anchors
-- LIS on anchors: [`longest_increasing_subsequence`](src/diff/core/patience.rs)
-- Myers on unmatched spans
+- Patience diff:
+  - Unique anchors + LIS to stabilize matching
+  - Unmatched spans fall back to Myers
+  - Implementation: [`diff::core::patience::compute_patience_diff`](src/diff/core/patience.rs)
 
-Myers worst-case: O((N+M)D) with N old, M new, D edit distance.
+- Myers diff:
+  - Worst-case complexity $O((N+M)D)$ with $N$ old length, $M$ new length, $D$ edit distance
+  - Implementation: [`diff::core::myers::compute_diff`](src/diff/core/myers.rs)
 
-Unified hunks grouped via [`group_into_hunks`](src/diff/render/unified.rs) -> [`Hunk`](src/diff/data.rs).
+Unified grouping builds hunks with configurable context in [`diff::render::group_into_hunks`](src/diff/render/unified.rs) producing [`diff::data::Hunk`](src/diff/data.rs).
 
-## Word Tokenization
+## Word tokenization
 
-Rules in [`tokenize`](src/diff/modes/word.rs):
-- Collapse consecutive whitespace to single space token
-- Normalize replacement markers `[-old+new]`
-- Treat replacements atomically for coherence
+Tokenizer in [`diff::modes::word.rs`](src/diff/modes/word.rs):
 
-## Architecture
+- Treats `[-old+new]` as an atomic token
+- Matches non-whitespace with trailing space as one token (`[^\s]+\s*`)
+- Emits newline tokens (`\n`) explicitly
+- Punctuation stays attached to neighboring tokens
+- Patience step filters empty/whitespace-only insertions
 
-- Core algorithms: [`diff/core`](src/diff/core/mod.rs)
-- Data types: [`diff/data.rs`](src/diff/data.rs)
-- Modes: [`diff/modes`](src/diff/modes/mod.rs)
-- Renderers: [`diff/render`](src/diff/render/mod.rs)
-- CLI: [`cli.rs`](src/cli.rs)
-- FS I/O: [`fsio.rs`](src/fsio.rs)
-- Entry: [`main.rs`](src/main.rs)
+Rendering groups adjacent insert/delete pairs into replacements in [`diff::render::render_word_diff`](src/diff/render/word.rs).
 
-## Compact Mode
+## I/O
 
-Implemented in `compact_diff_output` (main): keeps lines starting with `+`, `-`, `@@`, `---`, `+++`.
+- Reads whole files as UTF‑8 strings: [`fsio::read_file`](src/fsio.rs)
+- Writes chosen output file in [`main`](src/main.rs)
+- Optional HTML export alongside `.diff`: [`diff::render::write_diff_outputs`](src/diff/render/mod.rs)
 
-## Limitations / Notes
+## Compact and summary modes
 
-- Word mode treats punctuation as part of tokens (simple splitter).
-- No binary file handling (assumes UTF‑8): [`read_file`](src/fsio.rs).
-- Unified diff context size currently fixed (`CONTEXT = 4`); CLI `--unified` value not yet wired through.
-- Colored word-level inline replacements may not render correctly in some pagers (ANSI sequences inside `[-old+new]`). Use a pager that preserves color:
-  - Pipe directly: `rustdiff a b --word --color | less -R`
-  - Or view saved file: `cat diff.txt | bat --paging=always`
-  - Plain `less` without `-R` or some terminals may show raw escape codes.
+- Compact: implemented by calling unified renderer with 0 context in [`main`](src/main.rs), keeping only `+`, `-`, and hunk/file headers.
+- Summary: [`diff::data::DiffStats`](src/diff/data.rs) counts operations; `changes = inserts + deletes`.
 
-## Roadmap
+## Development
 
-- Adjustable unified context lines
-- Character-level diff mode
-- Whitespace-ignore flag
-- JSON output format
-- Benchmarks / profiling
+- Format: `cargo fmt --all`
+- Lint: `cargo clippy -- -D warnings`
+- Test: `cargo test --all --verbose` (unit tests in [`diff::core::myers`](src/diff/core/myers.rs) and [`diff::core::patience`](src/diff/core/patience.rs))
+- CI: see [GitHub Actions workflow](.github/workflows/ci.yml)
 
-## Testing
+## Limitations
 
-```sh
-cargo run -- old.txt new.txt --color
-```
-
-(Adjust file paths.)
+- Text only; assumes UTF‑8 input ([`fsio::read_file`](src/fsio.rs))
+- Word tokenizer is whitespace-based; punctuation is not split
+- Some pagers may not render ANSI inside `[-old+new]`. Use `less -R` or view HTML export
 
 ## License
 
-MIT (see [LICENSE](LICENSE))
+MIT — see [LICENSE](LICENSE)
