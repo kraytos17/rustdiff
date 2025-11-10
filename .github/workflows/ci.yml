@@ -67,16 +67,16 @@ jobs:
           ls -lh rustdiff*
 
       - name: Strip symbols before compression
-        run: strip target/x86_64-unknown-linux-gnu/release/rustdiff-${{ github.ref_name }}-linux-x86_64
+        run: strip target/x86_64-unknown-linux-gnu/dist/rustdiff-${{ github.ref_name }}-linux-x86_64
 
       - name: Compress with UPX
         run: |
           sudo apt-get update && sudo apt-get install -y upx
-          upx --best --lzma target/x86_64-unknown-linux-gnu/release/rustdiff-${{ github.ref_name }}-linux-x86_64
+          upx --best --lzma target/x86_64-unknown-linux-gnu/dist/rustdiff-${{ github.ref_name }}-linux-x86_64
 
       - name: Generate SHA256 checksum
         run: |
-          cd target/x86_64-unknown-linux-gnu/release
+          cd target/x86_64-unknown-linux-gnu/dist
           sha256sum rustdiff-${{ github.ref_name }}-linux-x86_64 > rustdiff-${{ github.ref_name }}-linux-x86_64.sha256
 
       - name: Upload binary artifact
@@ -84,8 +84,8 @@ jobs:
         with:
           name: rustdiff-linux-x86_64
           path: |
-            target/x86_64-unknown-linux-gnu/release/rustdiff-${{ github.ref_name }}-linux-x86_64
-            target/x86_64-unknown-linux-gnu/release/rustdiff-${{ github.ref_name }}-linux-x86_64.sha256
+            target/x86_64-unknown-linux-gnu/dist/rustdiff-${{ github.ref_name }}-linux-x86_64
+            target/x86_64-unknown-linux-gnu/dist/rustdiff-${{ github.ref_name }}-linux-x86_64.sha256
 
   release:
     name: Create GitHub Release
