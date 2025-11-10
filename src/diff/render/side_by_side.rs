@@ -49,6 +49,7 @@ fn split_diff_into_columns(diff_text: &str) -> (Vec<Option<String>>, Vec<Option<
     (left, right)
 }
 
+#[allow(clippy::too_many_lines)]
 fn write_html_header(file: &mut File) -> io::Result<()> {
     write!(
         file,
