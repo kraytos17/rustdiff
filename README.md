@@ -1,6 +1,6 @@
 # rustdiff
 
-Fast, human‑readable text diffs in pure Rust. Supports line and word modes, unified output with adjustable context, ANSI colors, and HTML export.
+Fast, human‑readable text diffs in pure Rust for Linux. Supports line and word modes, unified output with adjustable context, ANSI colors, and optional HTML export.
 
 - Entry point: [`main`](src/main.rs)
 - CLI definition: [`cli::Cli`](src/cli.rs)
@@ -22,21 +22,31 @@ Data types:
 - Ops: [`diff::data::DiffOp`](src/diff/data.rs) = Equal(String) | Insert(String) | Delete(String)
 - Unified hunks: [`diff::data::Hunk`](src/diff/data.rs)
 
-## Install
+## Install (Linux)
 
-From source:
+Build from source:
 
 ```sh
 cargo build --release
 ```
 
-Binary at `target/release/rustdiff`. Or run in place:
+Run from target:
 
 ```sh
-cargo run -- <OLD> <NEW> [flags]
+./target/release/rustdiff --help
 ```
 
-Rust edition: see [Cargo.toml](Cargo.toml).
+Install to PATH (user):
+
+```sh
+cargo install --path .
+```
+
+If you downloaded a standalone binary, make it executable on Linux:
+
+```sh
+chmod +x ./rustdiff && ./rustdiff --help
+```
 
 ## CLI
 
@@ -115,8 +125,6 @@ With `--color`, deletions are red and insertions green.
 
 ## Programmatic use (internal modules)
 
-The binary exposes internal modules that you can call from within this crate:
-
 ```rs
 use rustdiff::diff::modes::{diff_lines, diff_words};
 use rustdiff::diff::render::{render_line_diff, render_unified_diff, render_word_diff};
@@ -143,22 +151,10 @@ Key APIs:
   - Implementation: [`diff::core::patience::compute_patience_diff`](src/diff/core/patience.rs)
 
 - Myers diff:
-  - Worst-case complexity $O((N+M)D)$ with $N$ old length, $M$ new length, $D$ edit distance
+  - Worst-case complexity O((N+M)D) with N old length, M new length, D edit distance
   - Implementation: [`diff::core::myers::compute_diff`](src/diff/core/myers.rs)
 
 Unified grouping builds hunks with configurable context in [`diff::render::group_into_hunks`](src/diff/render/unified.rs) producing [`diff::data::Hunk`](src/diff/data.rs).
-
-## Word tokenization
-
-Tokenizer in [`diff::modes::word.rs`](src/diff/modes/word.rs):
-
-- Treats `[-old+new]` as an atomic token
-- Matches non-whitespace with trailing space as one token (`[^\s]+\s*`)
-- Emits newline tokens (`\n`) explicitly
-- Punctuation stays attached to neighboring tokens
-- Patience step filters empty/whitespace-only insertions
-
-Rendering groups adjacent insert/delete pairs into replacements in [`diff::render::render_word_diff`](src/diff/render/word.rs).
 
 ## I/O
 
@@ -168,7 +164,7 @@ Rendering groups adjacent insert/delete pairs into replacements in [`diff::rende
 
 ## Compact and summary modes
 
-- Compact: implemented by calling unified renderer with 0 context in [`main`](src/main.rs), keeping only `+`, `-`, and hunk/file headers.
+- Compact: implemented by calling unified renderer with 0 context, keeping only `+`, `-`, and hunk/file headers.
 - Summary: [`diff::data::DiffStats`](src/diff/data.rs) counts operations; `changes = inserts + deletes`.
 
 ## Development
@@ -176,7 +172,6 @@ Rendering groups adjacent insert/delete pairs into replacements in [`diff::rende
 - Format: `cargo fmt --all`
 - Lint: `cargo clippy -- -D warnings`
 - Test: `cargo test --all --verbose` (unit tests in [`diff::core::myers`](src/diff/core/myers.rs) and [`diff::core::patience`](src/diff/core/patience.rs))
-- CI: see [GitHub Actions workflow](.github/workflows/ci.yml)
 
 ## Limitations
 
