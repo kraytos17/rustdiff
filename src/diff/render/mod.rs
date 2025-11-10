@@ -1,16 +1,18 @@
 pub mod line;
 pub mod unified;
 pub mod word;
+pub mod side_by_side;
 
 pub use line::render_line_diff;
 pub use unified::render_unified_diff;
 pub use word::render_word_diff;
+pub use side_by_side::render_side_by_side_html;
 
 use ansi_to_html::convert;
 use std::fs::File;
 use std::io::{self, Write};
 
-pub fn write_diff_outputs(diff_text: &str, base_name: &str) -> io::Result<()> {
+pub fn render_diff_outputs(diff_text: &str, base_name: &str) -> io::Result<()> {
     let diff_path = format!("{base_name}.diff");
     let mut diff_file = File::create(&diff_path)?;
     diff_file.write_all(diff_text.as_bytes())?;

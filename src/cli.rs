@@ -10,16 +10,17 @@ use clap::{ArgAction, ArgGroup, Parser, ValueHint};
     author = "Soumil Kumar",
     version,
     about = "A high-performance, pure Rust diff generator",
-    long_about = None,
     disable_help_subcommand = true,
     group(
-        ArgGroup::new("mode")
+        ArgGroup::new("diff_mode")
             .args(["line", "word"])
+            .multiple(false)
             .required(false)
     ),
     group(
-        ArgGroup::new("output_format")
+        ArgGroup::new("output_mode")
             .args(["unified", "compact", "summary"])
+            .multiple(false)
             .required(false)
     )
 )]
@@ -60,16 +61,29 @@ pub struct Cli {
     )]
     pub color: bool,
 
+    /// Export the diff as HTML
+    #[arg(long, help = "Generate colorized HTML diff output")]
+    pub html: bool,
+
+    /// Generate side-by-side HTML diff (implies --html)
+    #[arg(
+        long,
+        help = "Render a side-by-side HTML diff (requires --html)",
+        requires = "html",
+        conflicts_with_all = ["word", "unified", "compact", "summary"]
+    )]
+    pub side_by_side: bool,
+
     /// Number of context lines to display in unified mode
     #[arg(
         short = 'u',
         long = "unified",
         value_name = "N",
-        help = "Number of context lines in unified diff"
+        help = "Show unified diff with N context lines"
     )]
     pub unified: Option<usize>,
 
-    /// Hide unchanged lines in output (compact mode)
+    /// Hide unchanged lines (compact diff)
     #[arg(
         long,
         action = ArgAction::SetTrue,
@@ -81,7 +95,7 @@ pub struct Cli {
     #[arg(
         long,
         action = ArgAction::SetTrue,
-        help = "Show a summary (number of insertions/deletions)"
+        help = "Show a summary (insertions/deletions only)"
     )]
     pub summary: bool,
 
@@ -100,8 +114,4 @@ pub struct Cli {
         help = "Use line-level diff (default mode)"
     )]
     pub line: bool,
-
-    /// Export the diff as HTML
-    #[arg(long, help = "Also generate a colorized HTML diff output")]
-    pub html: bool,
 }
