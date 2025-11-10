@@ -61,7 +61,7 @@ jobs:
 
       - name: Build and prepare release binary
         run: |
-          cargo build --profile dist
+          cargo build --profile dist --target x86_64-unknown-linux-gnu
           cd target/x86_64-unknown-linux-gnu/release
           cp rustdiff rustdiff-${{ github.ref_name }}-linux-x86_64
           ls -lh rustdiff*
