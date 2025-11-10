@@ -1,12 +1,12 @@
 pub mod line;
+pub mod side_by_side;
 pub mod unified;
 pub mod word;
-pub mod side_by_side;
 
 pub use line::render_line_diff;
+pub use side_by_side::render_side_by_side_html;
 pub use unified::render_unified_diff;
 pub use word::render_word_diff;
-pub use side_by_side::render_side_by_side_html;
 
 use ansi_to_html::convert;
 use std::fs::File;
