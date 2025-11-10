@@ -1,4 +1,4 @@
-use clap::{ArgAction, ArgGroup, Parser, ValueHint};
+use clap::{ArgAction, ArgGroup, Parser, ValueEnum, ValueHint};
 
 /// A high-performance, human-readable diff generator written in pure Rust.
 ///
@@ -52,14 +52,14 @@ pub struct Cli {
     )]
     pub output: String,
 
-    /// Enable colorized diff output (ANSI colors)
+    /// When to use terminal colors (ANSI)
     #[arg(
-        short,
         long,
-        action = ArgAction::SetTrue,
-        help = "Enable colorized diff output (ANSI colors)"
+        value_enum,
+        default_value = "auto",
+        help = "When to use terminal colors: auto, always, or never"
     )]
-    pub color: bool,
+    pub color: ColorMode,
 
     /// Export the diff as HTML
     #[arg(long, help = "Generate colorized HTML diff output")]
@@ -114,4 +114,11 @@ pub struct Cli {
         help = "Use line-level diff (default mode)"
     )]
     pub line: bool,
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+pub enum ColorMode {
+    Auto,
+    Always,
+    Never,
 }
