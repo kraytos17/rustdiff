@@ -1,3 +1,4 @@
+#[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DiffOp {
     Equal(String),

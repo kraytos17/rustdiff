@@ -64,11 +64,11 @@ Primary flags (see [`cli::Cli`](src/cli.rs)):
 - --side-by-side: generate side‑by‑side HTML (requires `--html`, conflicts with `--word`, `--unified`, `--compact`, `--summary`)
 
 Color behavior (implemented in [`main`](src/main.rs) via [`cli::ColorMode`](src/cli.rs)):
-- auto: enabled only when writing to stdout, stdout is a TTY, and `--html` is not set
+- auto: enabled only when writing to stdout and stdout is a TTY
 - always: force colors
 - never: disable colors
 
-Practically: with the default `-o changes.diff`, colors are not included unless `--color always` is used or you write to stdout with `-o -`.
+Practically: with the default `-o changes.diff`, colors are not included unless `--color always` is used or you write to stdout with `-o -`. When using `--html`, use `--color always` to produce colored HTML.
 
 ### Examples
 
@@ -84,6 +84,11 @@ rustdiff old.txt new.txt -u 5 --color auto -o -
 
 # Word-level inline replacements (not supported with unified/compact)
 rustdiff old.txt new.txt --word --color always -o -
+
+# Word diff with unified output (each token on its own line)
+rustdiff old.txt new.txt --word -u 2 --color always -o -
+
+# Compact (only +/- and headers)
 
 # Compact (only +/- and headers)
 rustdiff old.txt new.txt --compact
@@ -170,12 +175,12 @@ Unified grouping builds hunks with configurable context in `group_into_hunks` (s
 
 - Reads whole files as UTF‑8 strings: [`fsio::read_file`](src/fsio.rs)
 - Writes chosen output file in [`main`](src/main.rs)
-- Linux-focused TTY detection via `libc::isatty` (colors auto-detect on Unix terminals)
+- Linux-focused TTY detection via `std::io::IsTerminal` (colors auto-detect on Unix terminals)
 
 ## Compatibility notes
 
-- `--word` is not supported with `--unified` or `--compact` output modes.
 - `--side-by-side` requires `--html` and conflicts with `--word`, `--unified`, `--compact`, `--summary`.
+- When using `--word` with `--unified` or `--compact`, each word token is rendered on its own line rather than inline.
 
 ## Development
 

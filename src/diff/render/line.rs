@@ -31,3 +31,64 @@ pub fn render_line_diff(diffs: &[DiffOp], color: bool) -> String {
 
     output
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_render_line_diff_empty() {
+        assert_eq!(render_line_diff(&[], false), "");
+    }
+
+    #[test]
+    fn test_render_line_diff_equal_only() {
+        let diffs = vec![DiffOp::Equal("hello".into()), DiffOp::Equal("world".into())];
+        let result = render_line_diff(&diffs, false);
+        assert_eq!(result, "  hello\n  world\n");
+    }
+
+    #[test]
+    fn test_render_line_diff_insert_only() {
+        let diffs = vec![DiffOp::Insert("added".into())];
+        let result = render_line_diff(&diffs, false);
+        assert_eq!(result, "+ added\n");
+    }
+
+    #[test]
+    fn test_render_line_diff_delete_only() {
+        let diffs = vec![DiffOp::Delete("removed".into())];
+        let result = render_line_diff(&diffs, false);
+        assert_eq!(result, "- removed\n");
+    }
+
+    #[test]
+    fn test_render_line_diff_mixed() {
+        let diffs = vec![
+            DiffOp::Equal("keep".into()),
+            DiffOp::Delete("old".into()),
+            DiffOp::Insert("new".into()),
+        ];
+        let result = render_line_diff(&diffs, false);
+        assert_eq!(result, "  keep\n- old\n+ new\n");
+    }
+
+    #[test]
+    fn test_render_line_diff_color() {
+        let diffs = vec![DiffOp::Insert("green".into()), DiffOp::Delete("red".into())];
+        let result = render_line_diff(&diffs, true);
+        assert!(result.contains("\x1B[32m"), "missing green");
+        assert!(result.contains("\x1B[31m"), "missing red");
+        assert!(result.contains("\x1B[0m"), "missing reset");
+    }
+
+    #[test]
+    fn test_render_line_diff_no_color() {
+        let diffs = vec![
+            DiffOp::Insert("plain".into()),
+            DiffOp::Delete("plain".into()),
+        ];
+        let result = render_line_diff(&diffs, false);
+        assert!(!result.contains('\x1B'), "unexpected escape codes");
+    }
+}

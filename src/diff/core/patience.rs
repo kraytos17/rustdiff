@@ -1,11 +1,28 @@
+use super::trim_common_ends;
 use crate::diff::core::myers::compute_diff;
 use crate::diff::data::DiffOp;
 use std::collections::HashMap;
 
-/// Compute a Patience Diff between two sequences.
-///
-/// Uses Myers’ algorithm for unmatched regions and unique anchors for stability.
 pub fn compute_patience_diff(a: &[&str], b: &[&str]) -> Vec<DiffOp> {
+    let (prefix_len, suffix_len, a_mid, b_mid) = trim_common_ends(a, b);
+    if a_mid.is_empty() && b_mid.is_empty() {
+        return a.iter().map(|s| DiffOp::Equal(s.to_string())).collect();
+    }
+
+    let middle = compute_patience_diff_inner(a_mid, b_mid);
+    let mut result = Vec::with_capacity(prefix_len + middle.len() + suffix_len);
+    for item in a.iter().take(prefix_len) {
+        result.push(DiffOp::Equal(item.to_string()));
+    }
+
+    result.extend(middle);
+    for item in a.iter().skip(a.len() - suffix_len) {
+        result.push(DiffOp::Equal(item.to_string()));
+    }
+    result
+}
+
+fn compute_patience_diff_inner(a: &[&str], b: &[&str]) -> Vec<DiffOp> {
     let anchors = find_unique_anchors(a, b);
     if anchors.is_empty() {
         return compute_diff(a, b);
@@ -14,14 +31,9 @@ pub fn compute_patience_diff(a: &[&str], b: &[&str]) -> Vec<DiffOp> {
     let mut result = Vec::new();
     let mut last_a = 0;
     let mut last_b = 0;
-
     for (ai, bi) in anchors {
         if ai > last_a || bi > last_b {
-            let mut sub_diff = compute_diff(&a[last_a..ai], &b[last_b..bi]);
-            sub_diff.retain(|op| match op {
-                DiffOp::Insert(s) => !s.trim().is_empty(),
-                DiffOp::Equal(_) | DiffOp::Delete(_) => true,
-            });
+            let sub_diff = compute_diff(&a[last_a..ai], &b[last_b..bi]);
 
             if !sub_diff.is_empty() {
                 result.extend(sub_diff);
@@ -34,11 +46,7 @@ pub fn compute_patience_diff(a: &[&str], b: &[&str]) -> Vec<DiffOp> {
     }
 
     if last_a < a.len() || last_b < b.len() {
-        let mut sub_diff = compute_diff(&a[last_a..], &b[last_b..]);
-        sub_diff.retain(|op| match op {
-            DiffOp::Insert(s) => !s.trim().is_empty(),
-            DiffOp::Equal(_) | DiffOp::Delete(_) => true,
-        });
+        let sub_diff = compute_diff(&a[last_a..], &b[last_b..]);
 
         if !sub_diff.is_empty() {
             result.extend(sub_diff);
@@ -82,7 +90,7 @@ fn count_freq<'a>(seq: &'a [&'a str]) -> HashMap<&'a str, usize> {
 }
 
 /// Compute the Longest Increasing Subsequence (LIS) of the provided pairs
-/// where pairs are (a_idx, b_idx) and are already in increasing `a_idx` order.
+/// where pairs are (`a_idx`, `b_idx`) and are already in increasing `a_idx` order.
 /// Returns a subsequence of pairs (owned) in increasing `a_idx` order.
 fn longest_increasing_subsequence(pairs: &[(usize, usize)]) -> Vec<(usize, usize)> {
     if pairs.is_empty() {
@@ -322,9 +330,112 @@ mod tests {
         let expected = vec![
             DiffOp::Equal("a".to_string()),
             DiffOp::Delete(" ".to_string()),
+            DiffOp::Insert("\t".to_string()),
             DiffOp::Equal("b".to_string()),
         ];
 
         assert_eq!(diff, expected);
+    }
+
+    #[test]
+    fn test_trim_common_ends_none() {
+        let a = s(&["a", "b", "c"]);
+        let b = s(&["x", "y", "z"]);
+        let (prefix, suffix, a_mid, b_mid) = trim_common_ends(&a, &b);
+        assert_eq!(prefix, 0);
+        assert_eq!(suffix, 0);
+        assert_eq!(a_mid, &a[..]);
+        assert_eq!(b_mid, &b[..]);
+    }
+
+    #[test]
+    fn test_trim_common_ends_full() {
+        let a = s(&["a", "b", "c"]);
+        let b = s(&["a", "b", "c"]);
+        let (prefix, suffix, a_mid, b_mid) = trim_common_ends(&a, &b);
+        assert_eq!(prefix, 3);
+        assert_eq!(suffix, 0);
+        assert!(a_mid.is_empty());
+        assert!(b_mid.is_empty());
+    }
+
+    #[test]
+    fn test_trim_common_ends_prefix_only() {
+        let a = s(&["a", "b", "x", "y"]);
+        let b = s(&["a", "b", "p", "q"]);
+        let (prefix, suffix, a_mid, b_mid) = trim_common_ends(&a, &b);
+        assert_eq!(prefix, 2);
+        assert_eq!(suffix, 0);
+        assert_eq!(a_mid, &["x", "y"]);
+        assert_eq!(b_mid, &["p", "q"]);
+    }
+
+    #[test]
+    fn test_trim_common_ends_suffix_only() {
+        let a = s(&["x", "y", "a", "b"]);
+        let b = s(&["p", "q", "a", "b"]);
+        let (prefix, suffix, a_mid, b_mid) = trim_common_ends(&a, &b);
+        assert_eq!(prefix, 0);
+        assert_eq!(suffix, 2);
+        assert_eq!(a_mid, &["x", "y"]);
+        assert_eq!(b_mid, &["p", "q"]);
+    }
+
+    #[test]
+    fn test_trim_common_ends_both() {
+        let a = s(&["a", "b", "x", "c", "d"]);
+        let b = s(&["a", "b", "y", "c", "d"]);
+        let (prefix, suffix, a_mid, b_mid) = trim_common_ends(&a, &b);
+        assert_eq!(prefix, 2);
+        assert_eq!(suffix, 2);
+        assert_eq!(a_mid, &["x"]);
+        assert_eq!(b_mid, &["y"]);
+    }
+
+    #[test]
+    fn test_trim_common_ends_partial_overlap() {
+        let a = s(&["a", "b", "c", "d"]);
+        let b = s(&["a", "x", "c", "d"]);
+        let (prefix, suffix, a_mid, b_mid) = trim_common_ends(&a, &b);
+        assert_eq!(prefix, 1);
+        assert_eq!(suffix, 2);
+        assert_eq!(a_mid, &["b"]);
+        assert_eq!(b_mid, &["x"]);
+    }
+
+    #[test]
+    fn test_trim_common_ends_prefix_overlaps_suffix_guard() {
+        let a = s(&["a"]);
+        let b = s(&["a"]);
+        let (prefix, suffix, a_mid, b_mid) = trim_common_ends(&a, &b);
+        assert_eq!(prefix, 1);
+        assert_eq!(suffix, 0);
+        assert!(a_mid.is_empty());
+        assert!(b_mid.is_empty());
+    }
+
+    #[test]
+    fn test_patience_change_in_middle_with_common_ends() {
+        let a = s(&["a", "b", "c", "d", "e"]);
+        let b = s(&["a", "b", "X", "d", "e"]);
+        let diff = compute_patience_diff(&a, &b);
+        assert_eq!(apply_diff(&a, &diff), b);
+        assert!(matches!(diff[0], DiffOp::Equal(ref s) if s == "a"));
+        assert!(matches!(diff[1], DiffOp::Equal(ref s) if s == "b"));
+        assert!(matches!(diff[2], DiffOp::Delete(ref s) if s == "c"));
+        assert!(matches!(diff[3], DiffOp::Insert(ref s) if s == "X"));
+        assert!(matches!(diff[4], DiffOp::Equal(ref s) if s == "d"));
+        assert!(matches!(diff[5], DiffOp::Equal(ref s) if s == "e"));
+    }
+
+    #[test]
+    fn test_patience_large_prefix_small_change() {
+        let a_strs: Vec<String> = (0..100).map(|i| format!("line_{i}")).collect();
+        let mut b_strs: Vec<String> = (0..100).map(|i| format!("line_{i}")).collect();
+        b_strs[50] = "CHANGED".to_string();
+        let a: Vec<&str> = a_strs.iter().map(String::as_str).collect();
+        let b: Vec<&str> = b_strs.iter().map(String::as_str).collect();
+        let diff = compute_patience_diff(&a, &b);
+        assert_eq!(apply_diff(&a, &diff), b);
     }
 }

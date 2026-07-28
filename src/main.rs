@@ -14,7 +14,7 @@ use cli::Cli;
 use fsio::read_file;
 use std::{
     fs::File,
-    io::{self, Write},
+    io::{self, IsTerminal, Write},
     process,
 };
 
@@ -28,7 +28,7 @@ fn main() {
     let use_color = match opts.color {
         ColorMode::Always => true,
         ColorMode::Never => false,
-        ColorMode::Auto => is_stdout && is_tty && !opts.html,
+        ColorMode::Auto => is_stdout && is_tty,
     };
 
     let diffs = if opts.word {
@@ -47,7 +47,17 @@ fn main() {
     }
 
     let rendered = if opts.word {
-        render_word_diff(&diffs, use_color)
+        if opts.unified.is_some() || opts.compact {
+            render_unified_diff(
+                &opts.old_file,
+                &opts.new_file,
+                &diffs,
+                opts.unified.unwrap_or(0),
+                use_color,
+            )
+        } else {
+            render_word_diff(&diffs, use_color)
+        }
     } else if let Some(context_lines) = opts.unified {
         render_unified_diff(
             &opts.old_file,
@@ -71,9 +81,14 @@ fn main() {
     if opts.html {
         let base_name = output_path.trim_end_matches(".diff");
         if opts.side_by_side {
-            if let Err(e) = render_side_by_side_html(&rendered, base_name) {
-                eprintln!("Error generating side-by-side HTML diff: {e}");
+            let diff_path = format!("{base_name}.diff");
+            let result = File::create(&diff_path)
+                .and_then(|mut f| f.write_all(rendered.as_bytes()))
+                .and_then(|()| render_side_by_side_html(&rendered, base_name));
+            if let Err(e) = result {
+                eprintln!("Error generating side-by-side diff: {e}");
             } else {
+                println!("Diff written to {diff_path}");
                 println!("Side-by-side HTML diff exported to {base_name}_side_by_side.html");
             }
         } else if let Err(e) = render_diff_outputs(&rendered, base_name) {
@@ -83,7 +98,7 @@ fn main() {
         }
     }
 
-    if !opts.side_by_side {
+    if !opts.side_by_side && opts.output != "-" {
         println!("Diff written to {output_path}");
     }
 }
@@ -99,11 +114,16 @@ fn read_or_exit(path: &str) -> String {
 }
 
 fn write_output(path: &str, contents: &str) -> io::Result<()> {
-    let mut file = File::create(path)?;
-    file.write_all(contents.as_bytes())
+    if path == "-" {
+        let stdout = io::stdout();
+        let mut handle = stdout.lock();
+        handle.write_all(contents.as_bytes())
+    } else {
+        let mut file = File::create(path)?;
+        file.write_all(contents.as_bytes())
+    }
 }
 
 fn stdout_is_terminal() -> bool {
-    use std::os::unix::io::AsRawFd;
-    unsafe { libc::isatty(io::stdout().as_raw_fd()) == 1 }
+    io::stdout().is_terminal()
 }

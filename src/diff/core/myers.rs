@@ -1,27 +1,38 @@
+#![allow(clippy::many_single_char_names, clippy::suspicious_operation_groupings)]
+
+use super::trim_common_ends;
 use crate::diff::data::DiffOp;
 
-/// Compute the minimal edit script between two slices using Myers' O(ND) diff algorithm.
-///
-/// # Parameters
-/// - `a`: old sequence
-/// - `b`: new sequence
-///
-/// # Returns
-/// A vector of [`DiffOp`] representing insertions, deletions, and equal elements.
-///
-/// # Notes
-/// Uses safe indexing and works for both line and word-level diffing.
 pub fn compute_diff(a: &[&str], b: &[&str]) -> Vec<DiffOp> {
-    let n = a.len() as isize;
-    let m = b.len() as isize;
-    let max = (n + m) as usize;
+    let (prefix_len, suffix_len, a_mid, b_mid) = trim_common_ends(a, b);
+    if a_mid.is_empty() && b_mid.is_empty() {
+        return a.iter().map(|s| DiffOp::Equal(s.to_string())).collect();
+    }
+
+    let middle = compute_diff_inner(a_mid, b_mid);
+    let mut result = Vec::with_capacity(prefix_len + middle.len() + suffix_len);
+    for item in a.iter().take(prefix_len) {
+        result.push(DiffOp::Equal(item.to_string()));
+    }
+
+    result.extend(middle);
+    for item in a.iter().skip(a.len() - suffix_len) {
+        result.push(DiffOp::Equal(item.to_string()));
+    }
+    result
+}
+
+fn compute_diff_inner(a: &[&str], b: &[&str]) -> Vec<DiffOp> {
+    let n = a.len().cast_signed();
+    let m = b.len().cast_signed();
+    let max = (n + m).cast_unsigned();
     let mut v = vec![0isize; 2 * max + 1];
     let mut trace = Vec::new();
 
     for d in 0..=max {
-        for k in (-(d as isize)..=d as isize).step_by(2) {
-            let index = (max as isize + k) as usize;
-            let x_start = match (k == -(d as isize), k == d as isize) {
+        for k in (-(d.cast_signed())..=d.cast_signed()).step_by(2) {
+            let index = (max.cast_signed() + k).cast_unsigned();
+            let x_start = match (k == -(d.cast_signed()), k == d.cast_signed()) {
                 (true, _) => safe_get(&v, max, k + 1),     // Down (insert)
                 (_, true) => safe_get(&v, max, k - 1) + 1, // Right (delete)
                 _ => {
@@ -37,7 +48,7 @@ pub fn compute_diff(a: &[&str], b: &[&str]) -> Vec<DiffOp> {
 
             let mut x = x_start;
             let mut y = x - k;
-            while x < n && y < m && a[x as usize] == b[y as usize] {
+            while x < n && y < m && a[x.cast_unsigned()] == b[y.cast_unsigned()] {
                 x += 1;
                 y += 1;
             }
@@ -48,48 +59,42 @@ pub fn compute_diff(a: &[&str], b: &[&str]) -> Vec<DiffOp> {
                 return backtrack(&trace, a, b);
             }
         }
-
         trace.push(v.clone());
     }
-
     unreachable!("Myers diff algorithm failed — unexpected termination");
 }
 
 /// Backtrack through the trace to reconstruct the diff operations.
 fn backtrack(trace: &[Vec<isize>], a: &[&str], b: &[&str]) -> Vec<DiffOp> {
-    let n = a.len() as isize;
-    let m = b.len() as isize;
-    let max = (n + m) as usize;
+    let n = a.len().cast_signed();
+    let m = b.len().cast_signed();
+    let max = (n + m).cast_unsigned();
     let mut x = n;
     let mut y = m;
 
     let mut diffs = Vec::new();
     let zero_vec = vec![0isize; 2 * max + 1];
     for (d, _) in trace.iter().enumerate().rev() {
-        // Find the 'v' from the previous step (d-1)
         let prev_v = if d == 0 { &zero_vec } else { &trace[d - 1] };
         let k = x - y;
         let down_x = safe_get(prev_v, max, k + 1);
         let right_x = safe_get(prev_v, max, k - 1);
-        let came_from_insert = if k == -(d as isize) {
-            true // Must have come from k+1, no k-1 exists at this edge
-        } else if k == d as isize {
-            // Must have come from k-1, no k+1 exists at this edge
+        let came_from_insert = if k == -(d.cast_signed()) {
+            true
+        } else if k == d.cast_signed() {
             false
         } else {
-            // We were in the middle, pick the one with the higher x
             right_x < down_x
         };
 
         let x_start = if came_from_insert {
             down_x
         } else {
-            right_x + 1 // +1 because a Delete moves *one step right*
+            right_x + 1
         };
-
         let y_start = x_start - k;
         while x > x_start && y > y_start {
-            diffs.push(DiffOp::Equal(a[(x - 1) as usize].to_string()));
+            diffs.push(DiffOp::Equal(a[(x - 1).cast_unsigned()].to_string()));
             x -= 1;
             y -= 1;
         }
@@ -99,26 +104,26 @@ fn backtrack(trace: &[Vec<isize>], a: &[&str], b: &[&str]) -> Vec<DiffOp> {
         }
         if came_from_insert {
             if y > 0 {
-                diffs.push(DiffOp::Insert(b[(y - 1) as usize].to_string()));
+                diffs.push(DiffOp::Insert(b[(y - 1).cast_unsigned()].to_string()));
                 y -= 1;
             }
         } else if x > 0 {
-            diffs.push(DiffOp::Delete(a[(x - 1) as usize].to_string()));
+            diffs.push(DiffOp::Delete(a[(x - 1).cast_unsigned()].to_string()));
             x -= 1;
         }
     }
 
     while x > 0 && y > 0 {
-        diffs.push(DiffOp::Equal(a[(x - 1) as usize].to_string()));
+        diffs.push(DiffOp::Equal(a[(x - 1).cast_unsigned()].to_string()));
         x -= 1;
         y -= 1;
     }
     while x > 0 {
-        diffs.push(DiffOp::Delete(a[(x - 1) as usize].to_string()));
+        diffs.push(DiffOp::Delete(a[(x - 1).cast_unsigned()].to_string()));
         x -= 1;
     }
     while y > 0 {
-        diffs.push(DiffOp::Insert(b[(y - 1) as usize].to_string()));
+        diffs.push(DiffOp::Insert(b[(y - 1).cast_unsigned()].to_string()));
         y -= 1;
     }
 
@@ -126,11 +131,9 @@ fn backtrack(trace: &[Vec<isize>], a: &[&str], b: &[&str]) -> Vec<DiffOp> {
     diffs
 }
 
-/// Safe index access for `v` that clamps out-of-range accesses.
-/// Returns 0 if the index is invalid.
 #[inline]
 fn safe_get(v: &[isize], max: usize, k: isize) -> isize {
-    let idx = (max as isize + k) as usize;
+    let idx = (max.cast_signed() + k).cast_unsigned();
     v.get(idx).copied().unwrap_or(0)
 }
 
@@ -290,6 +293,75 @@ mod tests {
     fn test_partial_overlap_sequences() {
         let a = s(&["A", "B", "C", "D", "E"]);
         let b = s(&["B", "C", "F", "E"]);
+        let diff = compute_diff(&a, &b);
+        assert_eq!(apply_diff(&a, &diff), b);
+    }
+
+    #[test]
+    fn test_trim_common_ends_none() {
+        let a = s(&["a", "b", "c"]);
+        let b = s(&["x", "y", "z"]);
+        let (prefix, suffix, a_mid, b_mid) = trim_common_ends(&a, &b);
+        assert_eq!(prefix, 0);
+        assert_eq!(suffix, 0);
+        assert_eq!(a_mid, &a[..]);
+        assert_eq!(b_mid, &b[..]);
+    }
+
+    #[test]
+    fn test_trim_common_ends_full() {
+        let a = s(&["a", "b", "c"]);
+        let b = s(&["a", "b", "c"]);
+        let (prefix, suffix, a_mid, b_mid) = trim_common_ends(&a, &b);
+        assert_eq!(prefix, 3);
+        assert_eq!(suffix, 0);
+        assert!(a_mid.is_empty());
+        assert!(b_mid.is_empty());
+    }
+
+    #[test]
+    fn test_trim_common_ends_both() {
+        let a = s(&["a", "b", "x", "c", "d"]);
+        let b = s(&["a", "b", "y", "c", "d"]);
+        let (prefix, suffix, a_mid, b_mid) = trim_common_ends(&a, &b);
+        assert_eq!(prefix, 2);
+        assert_eq!(suffix, 2);
+        assert_eq!(a_mid, &["x"]);
+        assert_eq!(b_mid, &["y"]);
+    }
+
+    #[test]
+    fn test_trim_common_ends_identical_short() {
+        let a = s(&["a"]);
+        let b = s(&["a"]);
+        let (prefix, _suffix, a_mid, _b_mid) = trim_common_ends(&a, &b);
+        assert_eq!(prefix, 1);
+        assert!(a_mid.is_empty());
+    }
+
+    #[test]
+    fn test_myers_change_in_middle_with_common_ends() {
+        let a = s(&["a", "b", "c", "d", "e"]);
+        let b = s(&["a", "b", "X", "d", "e"]);
+        let diff = compute_diff(&a, &b);
+
+        assert_eq!(apply_diff(&a, &diff), b);
+        assert!(matches!(diff[0], DiffOp::Equal(ref s) if s == "a"));
+        assert!(matches!(diff[1], DiffOp::Equal(ref s) if s == "b"));
+        assert!(matches!(diff[2], DiffOp::Delete(ref s) if s == "c"));
+        assert!(matches!(diff[3], DiffOp::Insert(ref s) if s == "X"));
+        assert!(matches!(diff[4], DiffOp::Equal(ref s) if s == "d"));
+        assert!(matches!(diff[5], DiffOp::Equal(ref s) if s == "e"));
+    }
+
+    #[test]
+    fn test_myers_large_prefix_small_change() {
+        let a_strs: Vec<String> = (0..100).map(|i| format!("line_{i}")).collect();
+        let mut b_strs: Vec<String> = (0..100).map(|i| format!("line_{i}")).collect();
+
+        b_strs[50] = "CHANGED".to_string();
+        let a: Vec<&str> = a_strs.iter().map(String::as_str).collect();
+        let b: Vec<&str> = b_strs.iter().map(String::as_str).collect();
         let diff = compute_diff(&a, &b);
         assert_eq!(apply_diff(&a, &diff), b);
     }

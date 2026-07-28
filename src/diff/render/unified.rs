@@ -153,3 +153,124 @@ fn group_into_hunks(diffs: &[DiffOp], context: usize) -> Vec<Hunk> {
 
     hunks
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn e(text: &str) -> DiffOp {
+        DiffOp::Equal(text.to_string())
+    }
+    fn i(text: &str) -> DiffOp {
+        DiffOp::Insert(text.to_string())
+    }
+    fn d(text: &str) -> DiffOp {
+        DiffOp::Delete(text.to_string())
+    }
+
+    #[test]
+    fn test_group_into_hunks_all_equal() {
+        let diffs = vec![e("a"), e("b"), e("c")];
+        let hunks = group_into_hunks(&diffs, 3);
+        assert!(hunks.is_empty());
+    }
+
+    #[test]
+    fn test_group_into_hunks_single_change() {
+        let diffs = vec![e("a"), e("b"), d("x"), i("y"), e("c"), e("d")];
+        let hunks = group_into_hunks(&diffs, 1);
+        assert_eq!(hunks.len(), 1);
+        assert_eq!(hunks[0].start_a, 2);
+        assert_eq!(hunks[0].start_b, 2);
+    }
+
+    #[test]
+    fn test_group_into_hunks_two_distant_changes() {
+        let diffs = vec![
+            e("a"),
+            d("x"),
+            i("y"),
+            e("b"),
+            e("c"),
+            e("d"),
+            e("e"),
+            d("p"),
+            i("q"),
+            e("f"),
+        ];
+        let hunks = group_into_hunks(&diffs, 1);
+        assert_eq!(hunks.len(), 2);
+    }
+
+    #[test]
+    fn test_group_into_hunks_context_boundary() {
+        let diffs = vec![
+            e("a"),
+            e("b"),
+            e("c"),
+            e("d"),
+            e("e"),
+            d("x"),
+            i("y"),
+            e("f"),
+            e("g"),
+            e("h"),
+        ];
+        let hunks = group_into_hunks(&diffs, 2);
+        assert_eq!(hunks.len(), 1);
+        assert_eq!(hunks[0].ops.len(), 6);
+    }
+
+    #[test]
+    fn test_group_into_hunks_change_at_start() {
+        let diffs = vec![d("a"), i("b"), e("c"), e("d")];
+        let hunks = group_into_hunks(&diffs, 2);
+        assert_eq!(hunks.len(), 1);
+        assert_eq!(hunks[0].start_a, 1);
+        assert_eq!(hunks[0].start_b, 1);
+    }
+
+    #[test]
+    fn test_group_into_hunks_change_at_end() {
+        let diffs = vec![e("a"), e("b"), d("c"), i("d")];
+        let hunks = group_into_hunks(&diffs, 2);
+        assert_eq!(hunks.len(), 1);
+    }
+
+    // --- render_unified_diff ---
+
+    #[test]
+    fn test_render_unified_diff_empty() {
+        let result = render_unified_diff("old", "new", &[], 3, false);
+        assert_eq!(result, "--- old\n+++ new\n");
+    }
+
+    #[test]
+    fn test_render_unified_diff_basic() {
+        let diffs = vec![e("a"), d("x"), i("y"), e("b")];
+        let result = render_unified_diff("f1", "f2", &diffs, 0, false);
+        assert!(result.starts_with("--- f1\n+++ f2\n"));
+        assert!(result.contains("@@ -2,1 +2,1 @@"));
+        assert!(result.contains("-x"));
+        assert!(result.contains("+y"));
+    }
+
+    #[test]
+    fn test_render_unified_diff_compact_mode() {
+        let diffs = vec![e("ctx"), d("old"), i("new"), e("trail")];
+        let result = render_unified_diff("o", "n", &diffs, 0, false);
+        assert!(!result.contains("ctx"));
+        assert!(result.contains("-old"));
+        assert!(result.contains("+new"));
+    }
+
+    #[test]
+    fn test_render_unified_diff_color() {
+        let diffs = vec![d("red"), i("green")];
+        let result = render_unified_diff("o", "n", &diffs, 0, true);
+        assert!(result.contains("\x1b[31m"), "missing red");
+        assert!(result.contains("\x1b[32m"), "missing green");
+        assert!(result.contains("\x1b[36m"), "missing cyan hunk header");
+        assert!(result.contains("\x1b[90m"), "missing gray file header");
+    }
+}

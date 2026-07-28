@@ -78,6 +78,10 @@ td.line {{
             )
             .as_bytes(),
         )?;
+    } else {
+        return Err(io::Error::other(
+            "failed to convert diff to HTML — try --color always",
+        ));
     }
 
     Ok(())
