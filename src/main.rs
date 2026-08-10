@@ -27,14 +27,14 @@ fn main() {
         ColorMode::Auto => is_stdout && is_tty,
     };
 
-    let diffs = if opts.word {
-        diff_words(&old_text, &new_text)
+    let diff = if opts.word {
+        diff_words(&old_text, &new_text, opts.diff_algorithm)
     } else {
-        diff_lines(&old_text, &new_text)
+        diff_lines(&old_text, &new_text, opts.diff_algorithm)
     };
 
     if opts.summary {
-        let stats = DiffStats::from_ops(&diffs);
+        let stats = DiffStats::from_ops(&diff.ops);
         println!(
             "Changes: +{}, -{} (total {})",
             stats.inserts, stats.deletes, stats.changes
@@ -47,25 +47,25 @@ fn main() {
             render_unified_diff(
                 &opts.old_file,
                 &opts.new_file,
-                &diffs,
+                &diff,
                 opts.unified.unwrap_or(0),
                 use_color,
             )
         } else {
-            render_word_diff(&diffs, use_color)
+            render_word_diff(&diff, use_color)
         }
     } else if let Some(context_lines) = opts.unified {
         render_unified_diff(
             &opts.old_file,
             &opts.new_file,
-            &diffs,
+            &diff,
             context_lines,
             use_color,
         )
     } else if opts.compact {
-        render_unified_diff(&opts.old_file, &opts.new_file, &diffs, 0, use_color)
+        render_unified_diff(&opts.old_file, &opts.new_file, &diff, 0, use_color)
     } else {
-        render_line_diff(&diffs, use_color)
+        render_line_diff(&diff, use_color)
     };
 
     let output_path = &opts.output;

@@ -1,4 +1,4 @@
-use crate::diff::data::DiffOp;
+use crate::diff::data::{Diff, OpKind};
 use std::fmt::Write;
 
 const RED: &str = "\x1B[31m";
@@ -10,14 +10,18 @@ const MAX_LOOKAHEAD: usize = 8;
 /// Adjacent insert/delete pairs are treated as replacements.
 /// Whitespace-only tokens are folded logically into neighbors.
 #[must_use]
-pub fn render_word_diff(diffs: &[DiffOp], color: bool) -> String {
+pub fn render_word_diff(diff: &Diff, color: bool) -> String {
+    let edits = diff.edits();
+    render_word_edits(&edits, color)
+}
+
+fn render_word_edits(edits: &[(OpKind, &str)], color: bool) -> String {
     let mut output = String::new();
     let mut line_buf = String::new();
-
     let mut i = 0;
-    while i < diffs.len() {
-        match &diffs[i] {
-            DiffOp::Equal(text) => {
+    while i < edits.len() {
+        match edits[i] {
+            (OpKind::Equal, text) => {
                 line_buf.push_str(text);
                 if text.ends_with('\n') {
                     output.push_str(&line_buf);
@@ -25,8 +29,8 @@ pub fn render_word_diff(diffs: &[DiffOp], color: bool) -> String {
                 }
                 i += 1;
             }
-            DiffOp::Insert(insert_text) => {
-                let (consumed, delete_text) = find_matching_delete(&diffs[i..]);
+            (OpKind::Insert, insert_text) => {
+                let (consumed, delete_text) = find_matching_delete(&edits[i..]);
                 if let Some(delete_text) = delete_text {
                     if render_grouped(&mut line_buf, delete_text, insert_text, color) {
                         output.push_str(&line_buf);
@@ -41,8 +45,8 @@ pub fn render_word_diff(diffs: &[DiffOp], color: bool) -> String {
                     i += 1;
                 }
             }
-            DiffOp::Delete(delete_text) => {
-                let (consumed, insert_text) = find_matching_insert(&diffs[i..]);
+            (OpKind::Delete, delete_text) => {
+                let (consumed, insert_text) = find_matching_insert(&edits[i..]);
                 if let Some(insert_text) = insert_text {
                     if render_grouped(&mut line_buf, delete_text, insert_text, color) {
                         output.push_str(&line_buf);
@@ -59,7 +63,6 @@ pub fn render_word_diff(diffs: &[DiffOp], color: bool) -> String {
             }
         }
     }
-
     if !line_buf.is_empty() {
         output.push_str(&line_buf);
     }
@@ -67,17 +70,17 @@ pub fn render_word_diff(diffs: &[DiffOp], color: bool) -> String {
     output
 }
 
-/// Look for a delete operation that matches this insert, skipping whitespace
-fn find_matching_delete(ops: &[DiffOp]) -> (usize, Option<&str>) {
+/// Look for a delete edit that matches this insert, skipping whitespace.
+fn find_matching_delete<'a>(edits: &'a [(OpKind, &'a str)]) -> (usize, Option<&'a str>) {
     let mut i = 1;
     let mut skip_whitespace = false;
     let mut steps = 0;
-    while i < ops.len() && steps < MAX_LOOKAHEAD {
-        match &ops[i] {
-            DiffOp::Delete(text) => {
+    while i < edits.len() && steps < MAX_LOOKAHEAD {
+        match edits[i] {
+            (OpKind::Delete, text) => {
                 return (i + 1, Some(text));
             }
-            DiffOp::Equal(text) if text.trim().is_empty() => {
+            (OpKind::Equal, text) if text.trim().is_empty() => {
                 skip_whitespace = true;
                 steps += 1;
                 i += 1;
@@ -91,18 +94,18 @@ fn find_matching_delete(ops: &[DiffOp]) -> (usize, Option<&str>) {
     (if skip_whitespace { i } else { 1 }, None)
 }
 
-/// Look for an insert operation that matches this delete, skipping whitespace
-fn find_matching_insert(ops: &[DiffOp]) -> (usize, Option<&str>) {
+/// Look for an insert edit that matches this delete, skipping whitespace.
+fn find_matching_insert<'a>(edits: &'a [(OpKind, &'a str)]) -> (usize, Option<&'a str>) {
     let mut i = 1;
     let mut skip_whitespace = false;
     let mut steps = 0;
 
-    while i < ops.len() && steps < MAX_LOOKAHEAD {
-        match &ops[i] {
-            DiffOp::Insert(text) => {
+    while i < edits.len() && steps < MAX_LOOKAHEAD {
+        match edits[i] {
+            (OpKind::Insert, text) => {
                 return (i + 1, Some(text));
             }
-            DiffOp::Equal(text) if text.trim().is_empty() => {
+            (OpKind::Equal, text) if text.trim().is_empty() => {
                 skip_whitespace = true;
                 steps += 1;
                 i += 1;
@@ -164,120 +167,133 @@ fn render_delete(buf: &mut String, text: &str, color: bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::diff::data::DiffOp;
+    use crate::diff::data::{Diff, Op};
+
+    fn diff(ops: Vec<Op>, old: &[&str], new: &[&str]) -> Diff {
+        Diff {
+            ops,
+            old_tokens: old.iter().copied().map(str::to_owned).collect(),
+            new_tokens: new.iter().copied().map(str::to_owned).collect(),
+        }
+    }
 
     #[test]
     fn test_find_matching_delete_adjacent() {
-        let ops = vec![
-            DiffOp::Insert("hello".into()),
-            DiffOp::Delete("world".into()),
-        ];
-        let (consumed, text) = find_matching_delete(&ops);
+        let edits = vec![(OpKind::Insert, "hello"), (OpKind::Delete, "world")];
+        let (consumed, text) = find_matching_delete(&edits);
         assert_eq!(consumed, 2);
         assert_eq!(text, Some("world"));
     }
 
     #[test]
     fn test_find_matching_delete_skips_whitespace() {
-        let ops = vec![
-            DiffOp::Insert("hello".into()),
-            DiffOp::Equal(" ".into()),
-            DiffOp::Delete("world".into()),
+        let edits = vec![
+            (OpKind::Insert, "hello"),
+            (OpKind::Equal, " "),
+            (OpKind::Delete, "world"),
         ];
-        let (consumed, text) = find_matching_delete(&ops);
+        let (consumed, text) = find_matching_delete(&edits);
         assert_eq!(consumed, 3);
         assert_eq!(text, Some("world"));
     }
 
     #[test]
     fn test_find_matching_delete_bounded_lookahead() {
-        let mut ops = vec![DiffOp::Insert("hello".into())];
+        let mut edits = vec![(OpKind::Insert, "hello")];
         for _ in 0..MAX_LOOKAHEAD {
-            ops.push(DiffOp::Equal(" ".into()));
+            edits.push((OpKind::Equal, " "));
         }
-        ops.push(DiffOp::Delete("world".into()));
-        let (consumed, text) = find_matching_delete(&ops);
+        edits.push((OpKind::Delete, "world"));
+        let (consumed, text) = find_matching_delete(&edits);
         assert!(text.is_none());
         assert_eq!(consumed, 1 + MAX_LOOKAHEAD);
     }
 
     #[test]
     fn test_find_matching_insert_adjacent() {
-        let ops = vec![
-            DiffOp::Delete("hello".into()),
-            DiffOp::Insert("world".into()),
-        ];
-        let (consumed, text) = find_matching_insert(&ops);
+        let edits = vec![(OpKind::Delete, "hello"), (OpKind::Insert, "world")];
+        let (consumed, text) = find_matching_insert(&edits);
         assert_eq!(consumed, 2);
         assert_eq!(text, Some("world"));
     }
 
     #[test]
     fn test_find_matching_insert_skips_whitespace() {
-        let ops = vec![
-            DiffOp::Delete("hello".into()),
-            DiffOp::Equal(" ".into()),
-            DiffOp::Insert("world".into()),
+        let edits = vec![
+            (OpKind::Delete, "hello"),
+            (OpKind::Equal, " "),
+            (OpKind::Insert, "world"),
         ];
-        let (consumed, text) = find_matching_insert(&ops);
+        let (consumed, text) = find_matching_insert(&edits);
         assert_eq!(consumed, 3);
         assert_eq!(text, Some("world"));
     }
 
     #[test]
     fn test_find_matching_insert_bounded_lookahead() {
-        let mut ops = vec![DiffOp::Delete("hello".into())];
+        let mut edits = vec![(OpKind::Delete, "hello")];
         for _ in 0..MAX_LOOKAHEAD {
-            ops.push(DiffOp::Equal(" ".into()));
+            edits.push((OpKind::Equal, " "));
         }
-        ops.push(DiffOp::Insert("world".into()));
-        let (consumed, text) = find_matching_insert(&ops);
+        edits.push((OpKind::Insert, "world"));
+        let (consumed, text) = find_matching_insert(&edits);
         assert!(text.is_none());
         assert_eq!(consumed, 1 + MAX_LOOKAHEAD);
     }
 
     #[test]
     fn test_find_matching_delete_no_match() {
-        let ops = vec![
-            DiffOp::Insert("hello".into()),
-            DiffOp::Insert("world".into()),
-        ];
-        let (consumed, text) = find_matching_delete(&ops);
+        let edits = vec![(OpKind::Insert, "hello"), (OpKind::Insert, "world")];
+        let (consumed, text) = find_matching_delete(&edits);
         assert!(text.is_none());
         assert_eq!(consumed, 1);
     }
 
     #[test]
     fn test_render_word_diff_replacement_grouped() {
-        let diffs = vec![
-            DiffOp::Equal("hello ".into()),
-            DiffOp::Delete("world".into()),
-            DiffOp::Insert("rust".into()),
-            DiffOp::Equal("\n".into()),
-        ];
-        let result = render_word_diff(&diffs, false);
-        assert_eq!(result, "hello [-world+rust]\n");
+        let d = diff(
+            vec![
+                Op::equal(0, 1),
+                Op::delete(1, 1),
+                Op::insert(1, 1),
+                Op::equal(2, 1),
+            ],
+            &["hello ", "world", "\n"],
+            &["hello ", "rust", "\n"],
+        );
+        assert_eq!(render_word_diff(&d, false), "hello [-world+rust]\n");
     }
 
     #[test]
     fn test_render_word_diff_standalone_insert() {
-        let diffs = vec![
-            DiffOp::Equal("hello ".into()),
-            DiffOp::Insert("world".into()),
-            DiffOp::Equal("\n".into()),
-        ];
-        let result = render_word_diff(&diffs, false);
-        assert_eq!(result, "hello [+world]\n");
+        let d = diff(
+            vec![Op::equal(0, 1), Op::insert(1, 1), Op::equal(1, 1)],
+            &["hello ", "\n"],
+            &["hello ", "world", "\n"],
+        );
+        assert_eq!(render_word_diff(&d, false), "hello [+world]\n");
     }
 
     #[test]
     fn test_render_word_diff_standalone_delete() {
-        let diffs = vec![
-            DiffOp::Equal("hello ".into()),
-            DiffOp::Delete("world".into()),
-            DiffOp::Equal("\n".into()),
-        ];
-        let result = render_word_diff(&diffs, false);
-        assert_eq!(result, "hello [-world]\n");
+        let d = diff(
+            vec![Op::equal(0, 1), Op::delete(1, 1), Op::equal(2, 1)],
+            &["hello ", "world", "\n"],
+            &["hello ", "\n"],
+        );
+        assert_eq!(render_word_diff(&d, false), "hello [-world]\n");
+    }
+
+    #[test]
+    fn test_render_word_diff_insert_run() {
+        // An Insert run of 2 unrolls into two standalone insert markers.
+        let d = diff(
+            vec![Op::equal(0, 1), Op::insert(1, 2), Op::equal(1, 1)],
+            &["hello ", "\n"],
+            &["hello ", "very", " big", "\n"],
+        );
+        let result = render_word_diff(&d, false);
+        assert!(result.contains("[+very]"), "result: {result:?}");
+        assert!(result.contains("[+ big]"), "result: {result:?}");
     }
 }

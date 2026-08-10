@@ -1,7 +1,22 @@
+pub mod histogram;
 pub mod myers;
-pub mod patience;
 
-pub use patience::compute_patience_diff;
+pub use histogram::compute_histogram_diff;
+
+/// A matching run: `a[x..u] == b[y..v]`.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Snake {
+    pub x: usize,
+    pub y: usize,
+    pub u: usize,
+    pub v: usize,
+}
+
+impl Snake {
+    pub(super) const fn len(&self) -> usize {
+        self.u - self.x
+    }
+}
 
 #[allow(clippy::suspicious_operation_groupings)]
 fn trim_common_ends<'a>(

@@ -1,4 +1,4 @@
-use crate::diff::data::{DiffOp, Hunk};
+use crate::diff::data::{Diff, Hunk, Op, OpKind, u32_len};
 use std::fmt::Write;
 
 const RED: &str = "\x1b[31m";
@@ -14,7 +14,7 @@ const RESET: &str = "\x1b[0m";
 pub fn render_unified_diff(
     old_name: &str,
     new_name: &str,
-    diffs: &[DiffOp],
+    diff: &Diff,
     context: usize,
     color: bool,
 ) -> String {
@@ -27,7 +27,7 @@ pub fn render_unified_diff(
         writeln!(out, "+++ {new_name}").unwrap();
     }
 
-    let hunks = group_into_hunks(diffs, context);
+    let hunks = group_into_hunks(&diff.ops, context);
     for hunk in hunks {
         if color {
             writeln!(
@@ -46,22 +46,30 @@ pub fn render_unified_diff(
         }
 
         for op in &hunk.ops {
-            match op {
-                DiffOp::Equal(line) => {
-                    writeln!(out, " {line}").unwrap();
-                }
-                DiffOp::Insert(line) => {
-                    if color {
-                        writeln!(out, "{GREEN}+{line}{RESET}").unwrap();
-                    } else {
-                        writeln!(out, "+{line}").unwrap();
+            let tokens = match op.kind {
+                OpKind::Equal | OpKind::Delete => &diff.old_tokens,
+                OpKind::Insert => &diff.new_tokens,
+            };
+
+            let start = op.start as usize;
+            for line in &tokens[start..start + op.len as usize] {
+                match op.kind {
+                    OpKind::Equal => {
+                        writeln!(out, " {line}").unwrap();
                     }
-                }
-                DiffOp::Delete(line) => {
-                    if color {
-                        writeln!(out, "{RED}-{line}{RESET}").unwrap();
-                    } else {
-                        writeln!(out, "-{line}").unwrap();
+                    OpKind::Insert => {
+                        if color {
+                            writeln!(out, "{GREEN}+{line}{RESET}").unwrap();
+                        } else {
+                            writeln!(out, "+{line}").unwrap();
+                        }
+                    }
+                    OpKind::Delete => {
+                        if color {
+                            writeln!(out, "{RED}-{line}{RESET}").unwrap();
+                        } else {
+                            writeln!(out, "-{line}").unwrap();
+                        }
                     }
                 }
             }
@@ -71,61 +79,87 @@ pub fn render_unified_diff(
     out
 }
 
-/// Group the raw [`DiffOp`]s into hunks with context lines.
-fn group_into_hunks(diffs: &[DiffOp], context: usize) -> Vec<Hunk> {
-    let mut hunks = Vec::new();
-    let mut idx = 0;
-    let mut old_line = 1;
-    let mut new_line = 1;
+/// Group ops into hunks with context lines.
+///
+/// Runs are expanded to per-line `(kind, a_pos, b_pos)` entries so context
+/// windowing counts lines (an Equal run of `len` is `len` context lines), then
+/// each hunk's selected lines are re-encoded back into contiguous runs.
+#[allow(clippy::too_many_lines)]
+fn group_into_hunks(ops: &[Op], context: usize) -> Vec<Hunk> {
+    let mut lines: Vec<(OpKind, usize, usize)> = Vec::new();
+    let mut a_pos = 0usize;
+    let mut b_pos = 0usize;
+    for op in ops {
+        match op.kind {
+            OpKind::Equal => {
+                for _ in 0..op.len {
+                    lines.push((OpKind::Equal, a_pos, b_pos));
+                    a_pos += 1;
+                    b_pos += 1;
+                }
+            }
+            OpKind::Delete => {
+                for _ in 0..op.len {
+                    lines.push((OpKind::Delete, a_pos, b_pos));
+                    a_pos += 1;
+                }
+            }
+            OpKind::Insert => {
+                for _ in 0..op.len {
+                    lines.push((OpKind::Insert, a_pos, b_pos));
+                    b_pos += 1;
+                }
+            }
+        }
+    }
 
-    while idx < diffs.len() {
+    let mut hunks = Vec::new();
+    let mut idx = 0usize;
+    let mut old_line = 1usize;
+    let mut new_line = 1usize;
+
+    while idx < lines.len() {
         let mut context_start_idx = idx;
         let mut context_start_a = old_line;
         let mut context_start_b = new_line;
 
-        while let Some(op) = diffs.get(idx) {
-            if !matches!(op, DiffOp::Equal(_)) {
-                break;
-            }
-
+        while idx < lines.len() && lines[idx].0 == OpKind::Equal {
             if idx - context_start_idx >= context {
                 context_start_a += 1;
                 context_start_b += 1;
                 context_start_idx += 1;
             }
-
             old_line += 1;
             new_line += 1;
             idx += 1;
         }
-
-        if idx >= diffs.len() {
+        if idx >= lines.len() {
             break;
         }
 
-        let mut hunk_ops: Vec<DiffOp> = diffs[context_start_idx..idx].to_vec();
+        let mut hunk_lines: Vec<(OpKind, usize, usize)> = lines[context_start_idx..idx].to_vec();
         let hunk_start_a = context_start_a;
         let hunk_start_b = context_start_b;
         let mut trailing_context_count = 0;
 
-        while let Some(op) = diffs.get(idx) {
-            match op {
-                DiffOp::Insert(_) => {
-                    hunk_ops.push(op.clone());
+        while idx < lines.len() {
+            let (kind, _, _) = lines[idx];
+            match kind {
+                OpKind::Insert => {
+                    hunk_lines.push(lines[idx]);
                     new_line += 1;
                     trailing_context_count = 0;
                 }
-                DiffOp::Delete(_) => {
-                    hunk_ops.push(op.clone());
+                OpKind::Delete => {
+                    hunk_lines.push(lines[idx]);
                     old_line += 1;
                     trailing_context_count = 0;
                 }
-                DiffOp::Equal(_) => {
+                OpKind::Equal => {
                     if trailing_context_count >= context {
                         break;
                     }
-
-                    hunk_ops.push(op.clone());
+                    hunk_lines.push(lines[idx]);
                     old_line += 1;
                     new_line += 1;
                     trailing_context_count += 1;
@@ -134,14 +168,36 @@ fn group_into_hunks(diffs: &[DiffOp], context: usize) -> Vec<Hunk> {
             idx += 1;
         }
 
+        let mut hunk_ops: Vec<Op> = Vec::new();
+        for (kind, a_idx, b_idx) in hunk_lines {
+            let start = match kind {
+                OpKind::Equal | OpKind::Delete => a_idx,
+                OpKind::Insert => b_idx,
+            };
+            if let Some(last) = hunk_ops.last_mut()
+                && last.kind == kind
+                && last.start as usize + last.len as usize == start
+            {
+                last.len += 1;
+                continue;
+            }
+            hunk_ops.push(Op {
+                kind,
+                start: u32_len(start),
+                len: 1,
+            });
+        }
+
         let len_a = hunk_ops
             .iter()
-            .filter(|op| !matches!(op, DiffOp::Insert(_)))
-            .count();
+            .filter(|op| op.kind != OpKind::Insert)
+            .map(|op| op.len as usize)
+            .sum();
         let len_b = hunk_ops
             .iter()
-            .filter(|op| !matches!(op, DiffOp::Delete(_)))
-            .count();
+            .filter(|op| op.kind != OpKind::Delete)
+            .map(|op| op.len as usize)
+            .sum();
 
         hunks.push(Hunk {
             start_a: hunk_start_a,
@@ -158,28 +214,43 @@ fn group_into_hunks(diffs: &[DiffOp], context: usize) -> Vec<Hunk> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::diff::data::Diff;
 
-    fn e(text: &str) -> DiffOp {
-        DiffOp::Equal(text.to_string())
+    fn e(start: u32, len: u32) -> Op {
+        Op::equal(start, len)
     }
-    fn i(text: &str) -> DiffOp {
-        DiffOp::Insert(text.to_string())
+
+    fn i(start: u32, len: u32) -> Op {
+        Op::insert(start, len)
     }
-    fn d(text: &str) -> DiffOp {
-        DiffOp::Delete(text.to_string())
+
+    fn d(start: u32, len: u32) -> Op {
+        Op::delete(start, len)
+    }
+
+    fn lines_in(hunk: &Hunk) -> usize {
+        hunk.ops.iter().map(|op| op.len as usize).sum()
+    }
+
+    fn diff(ops: Vec<Op>, old: &[&str], new: &[&str]) -> Diff {
+        Diff {
+            ops,
+            old_tokens: old.iter().copied().map(str::to_owned).collect(),
+            new_tokens: new.iter().copied().map(str::to_owned).collect(),
+        }
     }
 
     #[test]
     fn test_group_into_hunks_all_equal() {
-        let diffs = vec![e("a"), e("b"), e("c")];
-        let hunks = group_into_hunks(&diffs, 3);
+        let ops = vec![e(0, 3)];
+        let hunks = group_into_hunks(&ops, 3);
         assert!(hunks.is_empty());
     }
 
     #[test]
     fn test_group_into_hunks_single_change() {
-        let diffs = vec![e("a"), e("b"), d("x"), i("y"), e("c"), e("d")];
-        let hunks = group_into_hunks(&diffs, 1);
+        let ops = vec![e(0, 1), e(1, 1), d(2, 1), i(2, 1), e(3, 1), e(4, 1)];
+        let hunks = group_into_hunks(&ops, 1);
         assert_eq!(hunks.len(), 1);
         assert_eq!(hunks[0].start_a, 2);
         assert_eq!(hunks[0].start_b, 2);
@@ -187,45 +258,47 @@ mod tests {
 
     #[test]
     fn test_group_into_hunks_two_distant_changes() {
-        let diffs = vec![
-            e("a"),
-            d("x"),
-            i("y"),
-            e("b"),
-            e("c"),
-            e("d"),
-            e("e"),
-            d("p"),
-            i("q"),
-            e("f"),
+        let ops = vec![
+            e(0, 1),
+            d(1, 1),
+            i(1, 1),
+            e(2, 1),
+            e(3, 1),
+            e(4, 1),
+            e(5, 1),
+            d(6, 1),
+            i(6, 1),
+            e(7, 1),
         ];
-        let hunks = group_into_hunks(&diffs, 1);
+        let hunks = group_into_hunks(&ops, 1);
         assert_eq!(hunks.len(), 2);
     }
 
     #[test]
     fn test_group_into_hunks_context_boundary() {
-        let diffs = vec![
-            e("a"),
-            e("b"),
-            e("c"),
-            e("d"),
-            e("e"),
-            d("x"),
-            i("y"),
-            e("f"),
-            e("g"),
-            e("h"),
+        let ops = vec![
+            e(0, 1),
+            e(1, 1),
+            e(2, 1),
+            e(3, 1),
+            e(4, 1),
+            d(5, 1),
+            i(5, 1),
+            e(6, 1),
+            e(7, 1),
+            e(8, 1),
         ];
-        let hunks = group_into_hunks(&diffs, 2);
+
+        let hunks = group_into_hunks(&ops, 2);
         assert_eq!(hunks.len(), 1);
-        assert_eq!(hunks[0].ops.len(), 6);
+        assert_eq!(lines_in(&hunks[0]), 6);
+        assert_eq!(hunks[0].ops.len(), 4, "6 lines re-encode to 4 runs");
     }
 
     #[test]
     fn test_group_into_hunks_change_at_start() {
-        let diffs = vec![d("a"), i("b"), e("c"), e("d")];
-        let hunks = group_into_hunks(&diffs, 2);
+        let ops = vec![d(0, 1), i(0, 1), e(1, 1), e(2, 1)];
+        let hunks = group_into_hunks(&ops, 2);
         assert_eq!(hunks.len(), 1);
         assert_eq!(hunks[0].start_a, 1);
         assert_eq!(hunks[0].start_b, 1);
@@ -233,23 +306,38 @@ mod tests {
 
     #[test]
     fn test_group_into_hunks_change_at_end() {
-        let diffs = vec![e("a"), e("b"), d("c"), i("d")];
-        let hunks = group_into_hunks(&diffs, 2);
+        let ops = vec![e(0, 1), e(1, 1), d(2, 1), i(2, 1)];
+        let hunks = group_into_hunks(&ops, 2);
         assert_eq!(hunks.len(), 1);
     }
 
-    // --- render_unified_diff ---
+    #[test]
+    fn test_group_into_hunks_long_equal_run_trimmed() {
+        // 10 leading equal lines (context 2 keeps only 2), change, 10 trailing
+        // equal lines (context 2 keeps only 2): 2+2+2 = 6 lines in the hunk.
+        let ops = vec![e(0, 10), d(10, 1), i(10, 1), e(11, 10)];
+        let hunks = group_into_hunks(&ops, 2);
+        assert_eq!(hunks.len(), 1);
+        assert_eq!(lines_in(&hunks[0]), 6);
+        assert_eq!(hunks[0].ops.len(), 4, "6 lines re-encode to 4 runs");
+    }
 
     #[test]
     fn test_render_unified_diff_empty() {
-        let result = render_unified_diff("old", "new", &[], 3, false);
+        let d = diff(vec![], &[], &[]);
+        let result = render_unified_diff("old", "new", &d, 3, false);
         assert_eq!(result, "--- old\n+++ new\n");
     }
 
     #[test]
     fn test_render_unified_diff_basic() {
-        let diffs = vec![e("a"), d("x"), i("y"), e("b")];
-        let result = render_unified_diff("f1", "f2", &diffs, 0, false);
+        let d = diff(
+            vec![e(0, 1), d(1, 1), i(1, 1), e(2, 1)],
+            &["a", "x", "b"],
+            &["a", "y", "b"],
+        );
+
+        let result = render_unified_diff("f1", "f2", &d, 0, false);
         assert!(result.starts_with("--- f1\n+++ f2\n"));
         assert!(result.contains("@@ -2,1 +2,1 @@"));
         assert!(result.contains("-x"));
@@ -258,20 +346,36 @@ mod tests {
 
     #[test]
     fn test_render_unified_diff_compact_mode() {
-        let diffs = vec![e("ctx"), d("old"), i("new"), e("trail")];
-        let result = render_unified_diff("o", "n", &diffs, 0, false);
+        let d = diff(
+            vec![e(0, 1), d(1, 1), i(1, 1), e(2, 1)],
+            &["ctx", "old", "trail"],
+            &["ctx", "new", "trail"],
+        );
+
+        let result = render_unified_diff("o", "n", &d, 0, false);
         assert!(!result.contains("ctx"));
+        assert!(!result.contains("trail"));
         assert!(result.contains("-old"));
         assert!(result.contains("+new"));
     }
 
     #[test]
     fn test_render_unified_diff_color() {
-        let diffs = vec![d("red"), i("green")];
-        let result = render_unified_diff("o", "n", &diffs, 0, true);
+        let d = diff(vec![d(0, 1), i(0, 1)], &["red"], &["green"]);
+        let result = render_unified_diff("o", "n", &d, 0, true);
         assert!(result.contains("\x1b[31m"), "missing red");
         assert!(result.contains("\x1b[32m"), "missing green");
         assert!(result.contains("\x1b[36m"), "missing cyan hunk header");
         assert!(result.contains("\x1b[90m"), "missing gray file header");
+    }
+
+    #[test]
+    fn test_render_unified_diff_run_unrolls() {
+        // A Delete run of 2 renders 2 lines.
+        let d = diff(vec![d(0, 2), i(0, 1)], &["old1", "old2"], &["new"]);
+        let result = render_unified_diff("o", "n", &d, 0, false);
+        assert!(result.contains("-old1"));
+        assert!(result.contains("-old2"));
+        assert!(result.contains("+new"));
     }
 }

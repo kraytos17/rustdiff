@@ -1,5 +1,5 @@
 use criterion::{Criterion, criterion_group, criterion_main};
-use rustdiff::diff::modes::{diff_lines, diff_words};
+use rustdiff::diff::modes::{DiffAlgorithm, diff_lines, diff_words};
 
 mod fixtures {
     use std::fmt::Write as _;
@@ -53,20 +53,30 @@ fn bench_diff(c: &mut Criterion) {
     let (repetitive_old, repetitive_new) = fixtures::repetitive();
     let (min_old, min_new) = fixtures::minified();
 
-    c.benchmark_group("diff_lines")
-        .bench_function("typical", |b| {
-            b.iter(|| diff_lines(&typical_old, &typical_new));
-        })
-        .bench_function("rewritten", |b| {
-            b.iter(|| diff_lines(&rewritten_old, &rewritten_new));
-        })
-        .bench_function("repetitive", |b| {
-            b.iter(|| diff_lines(&repetitive_old, &repetitive_new));
-        });
+    for algorithm in [DiffAlgorithm::Histogram, DiffAlgorithm::Myers] {
+        let label = match algorithm {
+            DiffAlgorithm::Histogram => "histogram",
+            DiffAlgorithm::Myers => "myers",
+        };
+        c.benchmark_group(format!("diff_lines/{label}"))
+            .bench_function("typical", |b| {
+                b.iter(|| diff_lines(&typical_old, &typical_new, algorithm));
+            })
+            .bench_function("rewritten", |b| {
+                b.iter(|| diff_lines(&rewritten_old, &rewritten_new, algorithm));
+            })
+            .bench_function("repetitive", |b| {
+                b.iter(|| diff_lines(&repetitive_old, &repetitive_new, algorithm));
+            });
+    }
 
-    c.benchmark_group("diff_words")
+    c.benchmark_group("diff_words/histogram")
         .bench_function("minified", |b| {
-            b.iter(|| diff_words(&min_old, &min_new));
+            b.iter(|| diff_words(&min_old, &min_new, DiffAlgorithm::Histogram));
+        });
+    c.benchmark_group("diff_words/myers")
+        .bench_function("minified", |b| {
+            b.iter(|| diff_words(&min_old, &min_new, DiffAlgorithm::Myers));
         });
 }
 

@@ -1,19 +1,29 @@
-use crate::diff::core::patience::compute_patience_diff;
-use crate::diff::data::DiffOp;
+use crate::diff::core::compute_histogram_diff;
+use crate::diff::core::myers::compute_diff;
+use crate::diff::data::Diff;
+use crate::diff::modes::DiffAlgorithm;
 use regex::Regex;
 use std::sync::LazyLock;
 
 static WORD_TOKEN_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(\[-.*?\+.*?\]|[^\s]+\s*|\n)").unwrap());
 
-pub fn diff_words(old_text: &str, new_text: &str) -> Vec<DiffOp> {
+pub fn diff_words(old_text: &str, new_text: &str, algorithm: DiffAlgorithm) -> Diff {
     let old_tokens = tokenize(&old_text.replace("\r\n", "\n"));
     let new_tokens = tokenize(&new_text.replace("\r\n", "\n"));
 
     let old_refs: Vec<&str> = old_tokens.iter().map(String::as_str).collect();
     let new_refs: Vec<&str> = new_tokens.iter().map(String::as_str).collect();
+    let ops = match algorithm {
+        DiffAlgorithm::Histogram => compute_histogram_diff(&old_refs, &new_refs),
+        DiffAlgorithm::Myers => compute_diff(&old_refs, &new_refs),
+    };
 
-    compute_patience_diff(&old_refs, &new_refs)
+    Diff {
+        ops,
+        old_tokens,
+        new_tokens,
+    }
 }
 
 fn tokenize(text: &str) -> Vec<String> {
@@ -57,43 +67,48 @@ mod tests {
         assert!(tokens.is_empty());
     }
 
+    fn round_trip(old: &str, new: &str, algorithm: DiffAlgorithm) {
+        let diff = diff_words(old, new, algorithm);
+        let old_tokens = tokenize(&old.replace("\r\n", "\n"));
+        let new_tokens = tokenize(&new.replace("\r\n", "\n"));
+        let old_refs: Vec<&str> = old_tokens.iter().map(String::as_str).collect();
+        let new_refs: Vec<&str> = new_tokens.iter().map(String::as_str).collect();
+        assert!(
+            diff.validate_round_trip(&old_refs, &new_refs),
+            "round-trip failed"
+        );
+    }
+
     #[test]
     fn test_diff_words_round_trip() {
-        let old = "hello world";
-        let new = "hello rust";
-        let diffs = diff_words(old, new);
-        let mut result: Vec<String> = Vec::new();
-        let mut ai = 0;
-        let old_tokens = tokenize(old);
-        for op in &diffs {
-            match op {
-                DiffOp::Equal(s) => {
-                    assert_eq!(Some(s.as_str()), old_tokens.get(ai).map(String::as_str));
-                    result.push(s.clone());
-                    ai += 1;
-                }
-                DiffOp::Insert(s) => result.push(s.clone()),
-                DiffOp::Delete(s) => {
-                    assert_eq!(Some(s.as_str()), old_tokens.get(ai).map(String::as_str));
-                    ai += 1;
-                }
-            }
-        }
-        let new_tokens: Vec<String> = tokenize(new);
-        assert_eq!(result, new_tokens);
+        round_trip("hello world", "hello rust", DiffAlgorithm::Histogram);
+        round_trip("hello world", "hello rust", DiffAlgorithm::Myers);
     }
 
     #[test]
     fn test_diff_words_crlf_normalized() {
-        let old = "hello\r\nworld\r\n";
-        let new = "hello\r\nrust\r\n";
-        let diffs = diff_words(old, new);
-        for op in &diffs {
-            match op {
-                DiffOp::Equal(s) | DiffOp::Insert(s) | DiffOp::Delete(s) => {
-                    assert!(!s.contains('\r'), "CR leaked into diff op: {s:?}");
-                }
-            }
+        let diff = diff_words(
+            "hello\r\nworld\r\n",
+            "hello\r\nrust\r\n",
+            DiffAlgorithm::Histogram,
+        );
+        for (_, text) in diff.edits() {
+            assert!(!text.contains('\r'), "CR leaked into diff op: {text:?}");
         }
+    }
+
+    #[test]
+    fn test_diff_words_runs_are_small() {
+        // A single-word change should produce a small number of runs.
+        let diff = diff_words(
+            "hello world foo",
+            "hello rust foo",
+            DiffAlgorithm::Histogram,
+        );
+        assert!(
+            diff.ops.len() <= 8,
+            "expected few runs, got {}: {diff:?}",
+            diff.ops.len()
+        );
     }
 }

@@ -1,8 +1,9 @@
+use crate::diff::modes::DiffAlgorithm;
 use clap::{ArgAction, ArgGroup, Parser, ValueEnum, ValueHint};
 
 /// A high-performance, human-readable diff generator written in pure Rust.
 ///
-/// Supports line- and word-level modes, colorized output, compact diffs,
+/// Supports line and word-level modes, colorized output, compact diffs,
 /// and unified diff formatting with context lines.
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Parser, Debug)]
@@ -60,6 +61,15 @@ pub struct Cli {
         help = "When to use terminal colors: auto, always, or never"
     )]
     pub color: ColorMode,
+
+    /// Diff algorithm to use
+    #[arg(
+        long,
+        value_enum,
+        default_value = "histogram",
+        help = "Diff algorithm: histogram (default) or myers"
+    )]
+    pub diff_algorithm: DiffAlgorithm,
 
     /// Export the diff as HTML
     #[arg(long, help = "Generate colorized HTML diff output")]

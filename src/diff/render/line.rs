@@ -1,4 +1,4 @@
-use crate::diff::data::DiffOp;
+use crate::diff::data::{Diff, OpKind};
 use std::fmt::Write;
 
 const RED: &str = "\x1B[31m";
@@ -6,25 +6,33 @@ const GREEN: &str = "\x1B[32m";
 const RESET: &str = "\x1B[0m";
 
 #[must_use]
-pub fn render_line_diff(diffs: &[DiffOp], color: bool) -> String {
+pub fn render_line_diff(diff: &Diff, color: bool) -> String {
     let mut output = String::new();
-    for op in diffs {
-        match op {
-            DiffOp::Equal(text) => {
-                writeln!(output, "  {text}").unwrap();
-            }
-            DiffOp::Insert(text) => {
-                if color {
-                    writeln!(output, "{GREEN}+ {text}{RESET}").unwrap();
-                } else {
-                    writeln!(output, "+ {text}").unwrap();
+    for op in &diff.ops {
+        let tokens = match op.kind {
+            OpKind::Equal | OpKind::Delete => &diff.old_tokens,
+            OpKind::Insert => &diff.new_tokens,
+        };
+
+        let start = op.start as usize;
+        for text in &tokens[start..start + op.len as usize] {
+            match op.kind {
+                OpKind::Equal => {
+                    writeln!(output, "  {text}").unwrap();
                 }
-            }
-            DiffOp::Delete(text) => {
-                if color {
-                    writeln!(output, "{RED}- {text}{RESET}").unwrap();
-                } else {
-                    writeln!(output, "- {text}").unwrap();
+                OpKind::Insert => {
+                    if color {
+                        writeln!(output, "{GREEN}+ {text}{RESET}").unwrap();
+                    } else {
+                        writeln!(output, "+ {text}").unwrap();
+                    }
+                }
+                OpKind::Delete => {
+                    if color {
+                        writeln!(output, "{RED}- {text}{RESET}").unwrap();
+                    } else {
+                        writeln!(output, "- {text}").unwrap();
+                    }
                 }
             }
         }
@@ -36,48 +44,61 @@ pub fn render_line_diff(diffs: &[DiffOp], color: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::diff::data::Op;
+
+    fn diff(ops: Vec<Op>, old: &[&str], new: &[&str]) -> Diff {
+        Diff {
+            ops,
+            old_tokens: old.iter().copied().map(str::to_owned).collect(),
+            new_tokens: new.iter().copied().map(str::to_owned).collect(),
+        }
+    }
 
     #[test]
     fn test_render_line_diff_empty() {
-        assert_eq!(render_line_diff(&[], false), "");
+        assert_eq!(render_line_diff(&diff(vec![], &[], &[]), false), "");
     }
 
     #[test]
     fn test_render_line_diff_equal_only() {
-        let diffs = vec![DiffOp::Equal("hello".into()), DiffOp::Equal("world".into())];
-        let result = render_line_diff(&diffs, false);
-        assert_eq!(result, "  hello\n  world\n");
+        let d = diff(
+            vec![Op::equal(0, 2)],
+            &["hello", "world"],
+            &["hello", "world"],
+        );
+        assert_eq!(render_line_diff(&d, false), "  hello\n  world\n");
     }
 
     #[test]
     fn test_render_line_diff_insert_only() {
-        let diffs = vec![DiffOp::Insert("added".into())];
-        let result = render_line_diff(&diffs, false);
-        assert_eq!(result, "+ added\n");
+        let d = diff(vec![Op::insert(0, 1)], &[], &["added"]);
+        assert_eq!(render_line_diff(&d, false), "+ added\n");
     }
 
     #[test]
     fn test_render_line_diff_delete_only() {
-        let diffs = vec![DiffOp::Delete("removed".into())];
-        let result = render_line_diff(&diffs, false);
-        assert_eq!(result, "- removed\n");
+        let d = diff(vec![Op::delete(0, 1)], &["removed"], &[]);
+        assert_eq!(render_line_diff(&d, false), "- removed\n");
     }
 
     #[test]
     fn test_render_line_diff_mixed() {
-        let diffs = vec![
-            DiffOp::Equal("keep".into()),
-            DiffOp::Delete("old".into()),
-            DiffOp::Insert("new".into()),
-        ];
-        let result = render_line_diff(&diffs, false);
-        assert_eq!(result, "  keep\n- old\n+ new\n");
+        let d = diff(
+            vec![Op::equal(0, 1), Op::delete(1, 1), Op::insert(1, 1)],
+            &["keep", "old"],
+            &["keep", "new"],
+        );
+        assert_eq!(render_line_diff(&d, false), "  keep\n- old\n+ new\n");
     }
 
     #[test]
     fn test_render_line_diff_color() {
-        let diffs = vec![DiffOp::Insert("green".into()), DiffOp::Delete("red".into())];
-        let result = render_line_diff(&diffs, true);
+        let d = diff(
+            vec![Op::insert(0, 1), Op::delete(0, 1)],
+            &["red"],
+            &["green"],
+        );
+        let result = render_line_diff(&d, true);
         assert!(result.contains("\x1B[32m"), "missing green");
         assert!(result.contains("\x1B[31m"), "missing red");
         assert!(result.contains("\x1B[0m"), "missing reset");
@@ -85,11 +106,19 @@ mod tests {
 
     #[test]
     fn test_render_line_diff_no_color() {
-        let diffs = vec![
-            DiffOp::Insert("plain".into()),
-            DiffOp::Delete("plain".into()),
-        ];
-        let result = render_line_diff(&diffs, false);
+        let d = diff(
+            vec![Op::insert(0, 1), Op::delete(0, 1)],
+            &["plain"],
+            &["plain"],
+        );
+        let result = render_line_diff(&d, false);
         assert!(!result.contains('\x1B'), "unexpected escape codes");
+    }
+
+    #[test]
+    fn test_render_line_diff_long_run() {
+        // A Delete run of 2 lines renders both lines.
+        let d = diff(vec![Op::delete(0, 2)], &["a", "b"], &[]);
+        assert_eq!(render_line_diff(&d, false), "- a\n- b\n");
     }
 }
