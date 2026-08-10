@@ -1,17 +1,13 @@
-mod cli;
-mod diff;
-mod fsio;
-
-use crate::cli::ColorMode;
-use crate::diff::data::DiffStats;
-use crate::diff::modes::{diff_lines, diff_words};
-use crate::diff::render::{
+use clap::Parser;
+use rustdiff::cli::Cli;
+use rustdiff::cli::ColorMode;
+use rustdiff::diff::data::DiffStats;
+use rustdiff::diff::modes::{diff_lines, diff_words};
+use rustdiff::diff::render::{
     render_diff_outputs, render_line_diff, render_side_by_side_html, render_unified_diff,
     render_word_diff,
 };
-use clap::Parser;
-use cli::Cli;
-use fsio::read_file;
+use rustdiff::fsio::read_file;
 use std::{
     fs::File,
     io::{self, IsTerminal, Write},

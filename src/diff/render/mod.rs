@@ -12,6 +12,12 @@ use ansi_to_html::convert;
 use std::fs::File;
 use std::io::{self, Write};
 
+/// Write the diff text as `.diff` and a colorized `.html` file.
+///
+/// # Errors
+///
+/// Returns an error if the `.diff` or `.html` file cannot be created or
+/// written, or if the ANSI-to-HTML conversion fails.
 pub fn render_diff_outputs(diff_text: &str, base_name: &str) -> io::Result<()> {
     let diff_path = format!("{base_name}.diff");
     let mut diff_file = File::create(&diff_path)?;

@@ -4,6 +4,10 @@ use std::io::{Read, Result};
 /// Read the entire file contents into a single UTF-8 string.
 ///
 /// Useful for word-level or character-level diffs.
+///
+/// # Errors
+///
+/// Returns an error if the file cannot be opened or is not valid UTF-8.
 pub fn read_file(path: &str) -> Result<String> {
     let mut file = File::open(path)?;
     let mut contents = String::new();

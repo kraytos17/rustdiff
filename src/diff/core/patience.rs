@@ -1,8 +1,9 @@
 use super::trim_common_ends;
 use crate::diff::core::myers::compute_diff;
 use crate::diff::data::DiffOp;
-use std::collections::HashMap;
+use rapidhash::RapidHashMap;
 
+#[must_use]
 pub fn compute_patience_diff(a: &[&str], b: &[&str]) -> Vec<DiffOp> {
     let (prefix_len, suffix_len, a_mid, b_mid) = trim_common_ends(a, b);
     if a_mid.is_empty() && b_mid.is_empty() {
@@ -62,7 +63,7 @@ fn find_unique_anchors<'a>(a: &'a [&'a str], b: &'a [&'a str]) -> Vec<(usize, us
     let freq_a = count_freq(a);
     let freq_b = count_freq(b);
 
-    let unique_b: HashMap<&'a str, usize> = b
+    let unique_b: RapidHashMap<&'a str, usize> = b
         .iter()
         .enumerate()
         .filter_map(|(j, &sb)| (freq_b.get(sb).copied().unwrap_or(0) == 1).then_some((sb, j)))
@@ -81,8 +82,8 @@ fn find_unique_anchors<'a>(a: &'a [&'a str], b: &'a [&'a str]) -> Vec<(usize, us
     longest_increasing_subsequence(&pairs)
 }
 
-fn count_freq<'a>(seq: &'a [&'a str]) -> HashMap<&'a str, usize> {
-    let mut map = HashMap::new();
+fn count_freq<'a>(seq: &'a [&'a str]) -> RapidHashMap<&'a str, usize> {
+    let mut map = RapidHashMap::default();
     for &s in seq {
         *map.entry(s).or_insert(0) += 1;
     }
@@ -139,7 +140,6 @@ fn longest_increasing_subsequence(pairs: &[(usize, usize)]) -> Vec<(usize, usize
 mod tests {
     use super::*;
     use crate::diff::data::DiffOp;
-    use std::collections::HashMap;
 
     fn s<'a>(seq: &'a [&'a str]) -> Vec<&'a str> {
         seq.to_vec()
@@ -156,8 +156,7 @@ mod tests {
                     assert_eq!(
                         Some(s.as_str()),
                         a.get(ai).copied(),
-                        "Equal operation mismatched original sequence at index {}",
-                        ai
+                        "Equal operation mismatched original sequence at index {ai}",
                     );
                     result.push(s.clone());
                     ai += 1;
@@ -167,8 +166,7 @@ mod tests {
                     assert_eq!(
                         Some(s.as_str()),
                         a.get(ai).copied(),
-                        "Delete operation removed wrong element at index {}",
-                        ai
+                        "Delete operation removed wrong element at index {ai}",
                     );
                     ai += 1;
                 }
@@ -181,7 +179,8 @@ mod tests {
     fn test_count_freq() {
         let seq = s(&["a", "b", "a", "c", "a", "b"]);
         let freq = count_freq(&seq);
-        let mut expected = HashMap::new();
+        let mut expected = RapidHashMap::default();
+
         expected.insert("a", 3);
         expected.insert("b", 2);
         expected.insert("c", 1);

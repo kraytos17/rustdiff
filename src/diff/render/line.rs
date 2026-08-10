@@ -5,6 +5,7 @@ const RED: &str = "\x1B[31m";
 const GREEN: &str = "\x1B[32m";
 const RESET: &str = "\x1B[0m";
 
+#[must_use]
 pub fn render_line_diff(diffs: &[DiffOp], color: bool) -> String {
     let mut output = String::new();
     for op in diffs {

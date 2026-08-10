@@ -23,6 +23,7 @@ pub struct DiffStats {
 }
 
 impl DiffStats {
+    #[must_use]
     pub fn from_ops(ops: &[DiffOp]) -> Self {
         let mut stats = Self::default();
         for op in ops {

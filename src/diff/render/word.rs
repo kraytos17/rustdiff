@@ -9,6 +9,7 @@ const MAX_LOOKAHEAD: usize = 8;
 /// Render inline, human-readable word diffs.
 /// Adjacent insert/delete pairs are treated as replacements.
 /// Whitespace-only tokens are folded logically into neighbors.
+#[must_use]
 pub fn render_word_diff(diffs: &[DiffOp], color: bool) -> String {
     let mut output = String::new();
     let mut line_buf = String::new();

@@ -10,6 +10,7 @@ const RESET: &str = "\x1b[0m";
 /// Render a unified diff similar to `git diff --unified`, with optional ANSI colors.
 ///
 /// Includes hunk headers (`@@ -a,b +c,d @@`) and configurable context lines.
+#[must_use]
 pub fn render_unified_diff(
     old_name: &str,
     new_name: &str,

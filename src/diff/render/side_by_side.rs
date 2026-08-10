@@ -4,6 +4,10 @@ use std::fs::File;
 use std::io::{self, Write};
 
 /// Convert an ANSI-colored diff to a full-width, side-by-side HTML layout.
+///
+/// # Errors
+///
+/// Returns an error if the HTML file cannot be created or written.
 pub fn render_side_by_side_html(diff_text: &str, base_name: &str) -> io::Result<()> {
     let html_path = format!("{base_name}_side_by_side.html");
     let mut html_file = File::create(&html_path)?;
