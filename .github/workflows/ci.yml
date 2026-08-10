@@ -91,7 +91,7 @@ jobs:
           sha256sum rustdiff-${{ github.ref_name }}-linux-x86_64 > rustdiff-${{ github.ref_name }}-linux-x86_64.sha256
 
       - name: Upload binary artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: rustdiff-linux-x86_64
           path: |
