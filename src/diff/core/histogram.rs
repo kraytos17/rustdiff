@@ -45,15 +45,7 @@ pub fn compute_histogram_diff(a: &[&str], b: &[&str]) -> Vec<Op> {
         }
     } else {
         let (_interner, a_ids, b_ids) = intern_both(a_mid, b_mid);
-        let mut ops = Vec::new();
-        histogram_inner_u32(
-            &a_ids,
-            &b_ids,
-            u32_len(prefix_len),
-            u32_len(prefix_len),
-            &mut ops,
-        );
-        ops
+        histogram_inner_u32(&a_ids, &b_ids, u32_len(prefix_len), u32_len(prefix_len))
     };
 
     let mut result = Vec::with_capacity(3);
@@ -71,32 +63,58 @@ pub fn compute_histogram_diff(a: &[&str], b: &[&str]) -> Vec<Op> {
     result
 }
 
-fn histogram_inner_u32(a: &[u32], b: &[u32], base_a: u32, base_b: u32, out: &mut Vec<Op>) {
+fn histogram_inner_u32(a: &[u32], b: &[u32], base_a: u32, base_b: u32) -> Vec<Op> {
     if a.is_empty() || b.is_empty() {
-        out.extend(diff_u32(a, b, base_a, base_b));
-        return;
+        return diff_u32(a, b, base_a, base_b);
     }
 
     let counts_a = build_counts(a);
     let counts_b = build_counts(b);
     let Some(id) = find_rarest_common_token(&counts_a, &counts_b) else {
-        out.extend(diff_u32(a, b, base_a, base_b));
-        return;
+        return diff_u32(a, b, base_a, base_b);
     };
 
     let apos = positions_of(a, id);
     let bpos = positions_of(b, id);
     let snake = find_best_snake(a, b, &apos, &bpos);
-
-    histogram_inner_u32(&a[..snake.x], &b[..snake.y], base_a, base_b, out);
-    out.push(Op::equal(base_a + u32_len(snake.x), u32_len(snake.len())));
-    histogram_inner_u32(
-        &a[snake.u..],
-        &b[snake.v..],
-        base_a + u32_len(snake.u),
-        base_b + u32_len(snake.v),
-        out,
+    let (mut left, right) = parallel_halves(
+        (&a[..snake.x], &b[..snake.y], base_a, base_b),
+        (
+            &a[snake.u..],
+            &b[snake.v..],
+            base_a + u32_len(snake.u),
+            base_b + u32_len(snake.v),
+        ),
     );
+
+    left.push(Op::equal(base_a + u32_len(snake.x), u32_len(snake.len())));
+    left.extend(right);
+    left
+}
+
+/// Diff the two independent halves around a snake. With the `parallel` feature,
+/// large regions run concurrently via `rayon::join`; small regions (and the
+/// default build) run sequentially to avoid join overhead.
+fn parallel_halves(
+    left: (&[u32], &[u32], u32, u32),
+    right: (&[u32], &[u32], u32, u32),
+) -> (Vec<Op>, Vec<Op>) {
+    #[cfg(feature = "parallel")]
+    {
+        /// Only parallelize regions large enough to amortize task scheduling.
+        const PARALLEL_THRESHOLD: usize = 16_384;
+        let total = left.0.len() + left.1.len() + right.0.len() + right.1.len();
+        if total >= PARALLEL_THRESHOLD {
+            return rayon::join(
+                || histogram_inner_u32(left.0, left.1, left.2, left.3),
+                || histogram_inner_u32(right.0, right.1, right.2, right.3),
+            );
+        }
+    }
+    (
+        histogram_inner_u32(left.0, left.1, left.2, left.3),
+        histogram_inner_u32(right.0, right.1, right.2, right.3),
+    )
 }
 
 /// Count occurrences of each token, capped at `MAX_OCCURRENCES + 1` so that

@@ -18,6 +18,7 @@ rustdiff <OLD> <NEW> [OPTIONS]
 - ANSI colors with `auto`, `always`, and `never` modes
 - HTML export: numbered and side-by-side layouts
 - Output to a file or stdout
+- Optional parallel diffing (`--features parallel`) — off by default, see below
 
 ## Install
 
@@ -155,6 +156,13 @@ With colors enabled, deletions are red and insertions green.
 Both operate over interned token IDs and emit run-length-encoded ops, so a
 large mostly-unchanged file produces only a handful of diff records.
 
+## Parallel diffing
+
+Building with `--features parallel` runs the histogram's independent
+sub-problems concurrently via `rayon`. It is off by default: on typical small
+inputs the scheduling overhead outweighs the gain, and only large regions
+(16k+ tokens) actually parallelize.
+
 ## Library use
 
 The diff core is also exposed as a library (`rustdiff::diff`):
@@ -188,13 +196,39 @@ Key types and functions:
 ## Development
 
 ```sh
-cargo fmt --all                  # format
-cargo clippy -- -D warnings      # lint
-cargo test --all --verbose       # test
+cargo fmt --all -- --check              # format
+cargo clippy -- -D warnings -W clippy::pedantic -W clippy::nursery   # lint
+cargo test --all-targets                # test
 ```
 
-CI runs format, lint, and tests on every push and builds a release binary on
-tags. See [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+Build warnings are denied via `.cargo/config.toml`. CI runs the same format,
+lint, and test checks on every push and builds a release binary on tags. See
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+
+To build with the optional parallel diffing feature:
+
+```sh
+cargo build --release --features parallel
+```
+
+### Memory regression
+
+A `dhat`-based test asserts the Myers path stays O(N+M) in peak heap. Run it
+alone for accurate numbers:
+
+```sh
+cargo test --test memory -- --test-threads=1
+```
+
+### Fuzzing
+
+A `cargo-fuzz` target (`fuzz/`) round-trips arbitrary byte inputs through both
+diff engines. Requires nightly (not part of stable CI):
+
+```sh
+cargo install cargo-fuzz
+cargo +nightly fuzz run diff_round_trip
+```
 
 ## License
 

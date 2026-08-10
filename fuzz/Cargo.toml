@@ -1,0 +1,19 @@
+[package]
+name = "rustdiff-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4.13"
+rustdiff = { path = ".." }
+
+[[bin]]
+name = "diff_round_trip"
+path = "fuzz_targets/diff_round_trip.rs"
+test = false
+doc = false
+bench = false

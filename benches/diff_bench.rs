@@ -45,12 +45,29 @@ mod fixtures {
         writeln!(new, "{}wnew", "word ".repeat(3000)).unwrap();
         (old, new)
     }
+
+    /// ~10,000 lines with many scattered changes — large enough that the
+    /// `parallel` feature could pay off, small enough to keep the bench fast.
+    pub fn large() -> (String, String) {
+        let mut old = String::with_capacity(500_000);
+        let mut new = String::with_capacity(500_000);
+        for i in 0..10_000 {
+            writeln!(old, "function fn_{i}(x: i32) -> i32 {{ x + {i} }}").unwrap();
+            if i % 97 == 0 {
+                writeln!(new, "function fn_{i}(x: i32) -> i32 {{ x * 2 }}").unwrap();
+            } else {
+                writeln!(new, "function fn_{i}(x: i32) -> i32 {{ x + {i} }}").unwrap();
+            }
+        }
+        (old, new)
+    }
 }
 
 fn bench_diff(c: &mut Criterion) {
     let (typical_old, typical_new) = fixtures::typical();
     let (rewritten_old, rewritten_new) = fixtures::rewritten();
     let (repetitive_old, repetitive_new) = fixtures::repetitive();
+    let (large_old, large_new) = fixtures::large();
     let (min_old, min_new) = fixtures::minified();
 
     for algorithm in [DiffAlgorithm::Histogram, DiffAlgorithm::Myers] {
@@ -67,6 +84,9 @@ fn bench_diff(c: &mut Criterion) {
             })
             .bench_function("repetitive", |b| {
                 b.iter(|| diff_lines(&repetitive_old, &repetitive_new, algorithm));
+            })
+            .bench_function("large", |b| {
+                b.iter(|| diff_lines(&large_old, &large_new, algorithm));
             });
     }
 

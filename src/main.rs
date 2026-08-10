@@ -7,7 +7,7 @@ use rustdiff::diff::render::{
     render_diff_outputs, render_line_diff, render_side_by_side_html, render_unified_diff,
     render_word_diff,
 };
-use rustdiff::fsio::read_file;
+use rustdiff::fsio::{Source, read_file};
 use std::{
     fs::File,
     io::{self, IsTerminal, Write},
@@ -16,8 +16,10 @@ use std::{
 
 fn main() {
     let opts = Cli::parse();
-    let old_text = read_or_exit(&opts.old_file);
-    let new_text = read_or_exit(&opts.new_file);
+    let old = read_or_exit(&opts.old_file);
+    let new = read_or_exit(&opts.new_file);
+    let old_text = source_str_or_exit(&old, &opts.old_file);
+    let new_text = source_str_or_exit(&new, &opts.new_file);
 
     let is_tty = stdout_is_terminal();
     let is_stdout = opts.output == "-";
@@ -28,9 +30,9 @@ fn main() {
     };
 
     let diff = if opts.word {
-        diff_words(&old_text, &new_text, opts.diff_algorithm)
+        diff_words(old_text, new_text, opts.diff_algorithm)
     } else {
-        diff_lines(&old_text, &new_text, opts.diff_algorithm)
+        diff_lines(old_text, new_text, opts.diff_algorithm)
     };
 
     if opts.summary {
@@ -99,9 +101,19 @@ fn main() {
     }
 }
 
-fn read_or_exit(path: &str) -> String {
+fn read_or_exit(path: &str) -> Source {
     match read_file(path) {
-        Ok(content) => content,
+        Ok(source) => source,
+        Err(e) => {
+            eprintln!("Error reading {path}: {e}");
+            process::exit(1);
+        }
+    }
+}
+
+fn source_str_or_exit<'a>(source: &'a Source, path: &'a str) -> &'a str {
+    match source.as_str() {
+        Ok(text) => text,
         Err(e) => {
             eprintln!("Error reading {path}: {e}");
             process::exit(1);
