@@ -1,6 +1,16 @@
+//! HTML rendering: self-contained diff pages with view-time JavaScript (theme
+//! toggle, change navigation, collapsible regions, line-wrap).
+//!
+//! The page shell is assembled in `document`, CSS lives in `css`, and the
+//! inline scripts live in `js`.
+
+mod css;
+mod document;
+mod js;
+
 use crate::diff::data::{Diff, OpKind};
 use crate::diff::render::unified::group_into_hunks;
-use html_escape::encode_text;
+use document::{esc, html_document};
 use std::fmt::Write as _;
 
 /// HTML color theme for generated diff pages.
@@ -10,81 +20,6 @@ pub enum HtmlTheme {
     Light,
 }
 
-const DARK_VARS: &str = "--bg:#0d1117; --panel:#161b22; --text:#c9d1d9; --border:#30363d; \
-                        --add-bg:#132c18; --del-bg:#2c1515; --add:#56d364; --del:#ff7b72; \
-                        --ln:#6e7681; --hunk:#1f6feb; --header:#30363d;";
-
-const LIGHT_VARS: &str = "--bg:#ffffff; --panel:#f6f8fa; --text:#24292f; --border:#d0d7de; \
-                         --add-bg:#e6ffec; --del-bg:#ffebe9; --add:#1a7f37; --del:#cf222e; \
-                         --ln:#6e7781; --hunk:#0969da; --header:#d0d7de;";
-
-const CSS: &str = r"
-* { box-sizing: border-box; }
-body { background: var(--bg); color: var(--text); font-family: monospace;
-       margin: 0; padding: 2rem; }
-h2 { font-size: 1.1rem; margin: 0 0 0.5rem; }
-pre { margin: 0; white-space: pre-wrap; overflow-wrap: break-word; }
-code { font-family: inherit; }
-del, ins { text-decoration: none; }
-ins { color: var(--add); background: var(--add-bg); }
-del { color: var(--del); background: var(--del-bg); }
-
-.file-head { padding: 0.3rem 0.5rem; color: var(--ln);
-             background: var(--panel); border-bottom: 1px solid var(--border); }
-
-table { border-collapse: collapse; width: 100%; }
-td { vertical-align: top; padding: 0; }
-
-/* unified / numbered view */
-tr.add { background: var(--add-bg); }
-tr.del { background: var(--del-bg); }
-tr.ctx:nth-child(even) { background: rgba(128,128,128,0.06); }
-td.ln { width: 3.2em; color: var(--ln); text-align: right; padding-right: 0.6em;
-        user-select: none; white-space: nowrap; }
-td.ln.empty { border-right: 1px solid var(--border); }
-td.txt { padding-left: 0.5em; }
-tr.hunk td { color: var(--hunk); padding: 0.3em 0.5em;
-             background: var(--panel); border-top: 1px solid var(--border);
-             border-bottom: 1px solid var(--border); }
-
-/* side-by-side view */
-.cell { width: 50%; padding: 0.1rem 0.5rem; border: 1px solid var(--border); }
-.cell.add { background: var(--add-bg); }
-.cell.del { background: var(--del-bg); }
-.cell .ln { display: inline-block; width: 3em; text-align: right; color: var(--ln);
-            padding-right: 0.8em; user-select: none; }
-thead th { text-align: center; color: var(--text); padding: 0.5rem;
-           background: var(--panel); border-bottom: 1px solid var(--border); }
-
-footer { text-align: center; color: var(--ln); font-size: 0.85rem;
-         padding: 1rem; border-top: 1px solid var(--border); }
-
-.toolbar { text-align: right; margin-bottom: 0.5rem; }
-#theme-toggle { background: var(--panel); color: var(--text);
-               border: 1px solid var(--border); border-radius: 4px;
-               padding: 0.25rem 0.6rem; cursor: pointer; font: inherit; }
-#theme-toggle:focus-visible { outline: 2px solid var(--hunk); outline-offset: 2px; }
-
-@media print {
-  :root {
-    --bg:#ffffff; --panel:#f6f8fa; --text:#24292f; --border:#d0d7de;
-    --add-bg:#e6ffec; --del-bg:#ffebe9; --add:#1a7f37; --del:#cf222e;
-    --ln:#6e7781; --hunk:#0969da; --header:#d0d7de;
-  }
-  body { padding: 0; }
-  footer { display: none; }
-}
-
-@media (max-width: 640px) {
-  td.cell { display: block; width: 100%; }
-  thead { display: none; }
-}
-";
-
-fn esc(s: &str) -> String {
-    encode_text(s).into_owned()
-}
-
 /// Theme selection for a generated page.
 ///
 /// `None` means "follow the viewer's `prefers-color-scheme` at open time",
@@ -92,59 +27,14 @@ fn esc(s: &str) -> String {
 /// that theme in as the authoritative default.
 pub type ThemeOption = Option<HtmlTheme>;
 
-fn html_document(title: &str, body: &str, theme: ThemeOption) -> String {
-    let data_theme = match theme {
-        Some(HtmlTheme::Dark) => "dark",
-        Some(HtmlTheme::Light) => "light",
-        None => "",
-    };
+/// Equal runs longer than this many rows are collapsed behind a "show" gap row
+/// in the numbered and side-by-side views.
+const COLLAPSE_THRESHOLD: usize = 6;
+
+/// A "show N unchanged lines" gap row for a collapsed equal run.
+fn gap_row(len: usize) -> String {
     format!(
-        r#"<!DOCTYPE html>
-<html lang="en" data-theme="{data_theme}">
-<head>
-<meta charset="UTF-8">
-<title>{title}</title>
-<style>
-:root {{ {DARK_VARS} }}
-:root[data-theme="light"] {{ {LIGHT_VARS} }}
-{CSS}
-</style>
-<script>
-/* Default theme before first paint: baked choice, else stored choice, else OS. */
-(function () {{
-  var t = document.documentElement.dataset.theme;
-  if (!t) {{
-    var stored = localStorage.getItem("rustdiff-theme");
-    t = (stored === "dark" || stored === "light")
-      ? stored
-      : (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-    document.documentElement.dataset.theme = t;
-  }}
-}})();
-</script>
-</head>
-<body>
-<div class="toolbar"><button id="theme-toggle" type="button">Toggle theme</button></div>
-{body}
-<footer>Generated by <b>rustdiff</b></footer>
-<script>
-(function () {{
-  var root = document.documentElement;
-  var btn = document.getElementById("theme-toggle");
-  function apply(t) {{
-    root.dataset.theme = t;
-    btn.textContent = t === "dark" ? "Light theme" : "Dark theme";
-  }}
-  apply(root.dataset.theme || "dark");
-  btn.addEventListener("click", function () {{
-    var next = root.dataset.theme === "dark" ? "light" : "dark";
-    localStorage.setItem("rustdiff-theme", next);
-    apply(next);
-  }});
-}})();
-</script>
-</body>
-</html>"#
+        "<tr class=\"gap\"><td colspan=\"2\"><span class=\"gap-label\">{len} unchanged lines</span> <button class=\"expand\" type=\"button\">Show</button></td></tr>\n"
     )
 }
 
@@ -159,9 +49,9 @@ pub fn render_unified_html(
     theme: ThemeOption,
 ) -> String {
     let mut body = String::new();
-    write!(
+    writeln!(
         body,
-        "<div class=\"file-head\"><code>--- {}</code></div>\n<div class=\"file-head\"><code>+++ {}</code></div>\n",
+        "<div class=\"file-head\"><code>--- {}</code></div>\n<div class=\"file-head\"><code>+++ {}</code></div>",
         esc(old_name),
         esc(new_name)
     )
@@ -221,25 +111,40 @@ pub fn render_unified_html(
     html_document(&format!("{old_name} \u{2192} {new_name}"), &body, theme)
 }
 
-/// Simple numbered listing with tinted add/delete rows.
+/// Simple numbered listing with tinted add/delete rows. Long unchanged runs
+/// are collapsed behind a "show" gap row.
 #[must_use]
 pub fn render_numbered_html(diff: &Diff, theme: ThemeOption) -> String {
     let mut body = String::new();
     body.push_str("<table>\n");
-    for (ln, (kind, text)) in diff.edits().into_iter().enumerate() {
-        let class = match kind {
+    let mut ln = 0usize;
+    for op in &diff.ops {
+        let tokens = diff.tokens_for(op.kind);
+        let start = op.start as usize;
+        let len = op.len as usize;
+        let collapsible = op.kind == OpKind::Equal && len > COLLAPSE_THRESHOLD;
+        if collapsible {
+            body.push_str(&gap_row(len));
+        }
+        let base_class = match op.kind {
             OpKind::Equal => "ctx",
             OpKind::Delete => "del",
             OpKind::Insert => "add",
         };
-
-        writeln!(
-            body,
-            "<tr class=\"{class}\"><td class=\"ln\">{}</td><td class=\"txt\"><pre>{}</pre></td></tr>",
-            ln + 1,
-            esc(text)
-        )
-        .unwrap();
+        let class = if collapsible {
+            "ctx collapsed"
+        } else {
+            base_class
+        };
+        for text in &tokens[start..start + len] {
+            ln += 1;
+            writeln!(
+                body,
+                "<tr class=\"{class}\"><td class=\"ln\">{ln}</td><td class=\"txt\"><pre>{}</pre></td></tr>",
+                esc(text)
+            )
+            .unwrap();
+        }
     }
     body.push_str("</table>\n");
     html_document("Diff", &body, theme)
@@ -250,6 +155,10 @@ pub fn render_numbered_html(diff: &Diff, theme: ThemeOption) -> String {
 /// Adjacent Delete-to-Insert runs are paired into one row; insert-only and
 /// delete-only rows leave the opposite cell empty. Alignment is structural,
 /// never derived from line content.
+#[allow(
+    clippy::too_many_lines,
+    reason = "one branch per op-stream shape (equal/paired/delete-only/insert-only)"
+)]
 #[must_use]
 pub fn render_side_by_side_html(
     diff: &Diff,
@@ -275,10 +184,21 @@ pub fn render_side_by_side_html(
         match op.kind {
             OpKind::Equal => {
                 let start = op.start as usize;
-                for line in &diff.old_tokens[start..start + op.len as usize] {
+                let len = op.len as usize;
+                let collapsible = len > COLLAPSE_THRESHOLD;
+                if collapsible {
+                    body.push_str(&gap_row(len));
+                }
+                let row_class = if collapsible {
+                    " class=\"ctx collapsed\""
+                } else {
+                    ""
+                };
+
+                for line in &diff.old_tokens[start..start + len] {
                     writeln!(
                         body,
-                        "<tr><td class=\"cell ctx\"><span class=\"ln\">{old_ln}</span><pre>{}</pre></td><td class=\"cell ctx\"><span class=\"ln\">{new_ln}</span><pre>{}</pre></td></tr>",
+                        "<tr{row_class}><td class=\"cell ctx\"><span class=\"ln\">{old_ln}</span><pre>{}</pre></td><td class=\"cell ctx\"><span class=\"ln\">{new_ln}</span><pre>{}</pre></td></tr>",
                         esc(line),
                         esc(line)
                     )
@@ -319,7 +239,7 @@ pub fn render_side_by_side_html(
                         || "<td class=\"cell add\"></td>".to_string(),
                         |h| format!("<td class=\"cell add\">{h}</td>"),
                     );
-                    writeln!(body, "<tr>{left_cell}{right_cell}</tr>").unwrap();
+                    writeln!(body, "<tr class=\"chg\">{left_cell}{right_cell}</tr>").unwrap();
                 }
                 i += 2;
             }
@@ -328,7 +248,7 @@ pub fn render_side_by_side_html(
                 for line in &diff.old_tokens[start..start + op.len as usize] {
                     writeln!(
                         body,
-                        "<tr><td class=\"cell del\"><span class=\"ln\">{old_ln}</span><pre>{}</pre></td><td class=\"cell\"></td></tr>",
+                        "<tr class=\"chg\"><td class=\"cell del\"><span class=\"ln\">{old_ln}</span><pre>{}</pre></td><td class=\"cell\"></td></tr>",
                         esc(line)
                     )
                     .unwrap();
@@ -341,7 +261,7 @@ pub fn render_side_by_side_html(
                 for line in &diff.new_tokens[start..start + op.len as usize] {
                     writeln!(
                         body,
-                        "<tr><td class=\"cell\"></td><td class=\"cell add\"><span class=\"ln\">{new_ln}</span><pre>{}</pre></td></tr>",
+                        "<tr class=\"chg\"><td class=\"cell\"></td><td class=\"cell add\"><span class=\"ln\">{new_ln}</span><pre>{}</pre></td></tr>",
                         esc(line)
                     )
                     .unwrap();
@@ -612,6 +532,126 @@ mod tests {
         assert!(
             html.contains("@media (max-width: 640px)"),
             "responsive stylesheet missing"
+        );
+    }
+
+    #[test]
+    fn test_nav_buttons_present() {
+        let d = diff(vec![], &[], &[]);
+        let html = render_unified_html(&d, 3, "o", "n", Some(HtmlTheme::Dark));
+        assert!(html.contains("id=\"prev-change\""), "prev button missing");
+        assert!(html.contains("id=\"next-change\""), "next button missing");
+        assert!(html.contains("id=\"wrap-toggle\""), "wrap button missing");
+        assert!(html.contains("scrollIntoView"), "nav JS missing");
+        assert!(html.contains("keydown"), "keyboard handler missing");
+    }
+
+    #[test]
+    fn test_side_by_side_marks_change_rows() {
+        let d = diff(
+            vec![Op::equal(0, 1), Op::delete(1, 1), Op::insert(1, 1)],
+            &["a", "b"],
+            &["a", "X"],
+        );
+        let html = render_side_by_side_html(&d, "o", "n", Some(HtmlTheme::Dark));
+        assert!(html.contains("class=\"chg\""), "change row not marked");
+
+        let equal_only = diff(vec![Op::equal(0, 1)], &["a"], &["a"]);
+        let html = render_side_by_side_html(&equal_only, "o", "n", Some(HtmlTheme::Dark));
+        assert!(
+            !html.contains("class=\"chg\""),
+            "equal-only must have no chg rows"
+        );
+    }
+
+    #[test]
+    fn test_numbered_long_equal_run_collapses() {
+        // 10 equal lines (above COLLAPSE_THRESHOLD) then a change.
+        let old: Vec<String> = (0..10).map(|i| format!("line {i}")).collect();
+        let old_refs: Vec<&str> = old.iter().map(String::as_str).collect();
+        let new: Vec<String> = (0..10).map(|i| format!("line {i}")).collect();
+        let mut new_refs: Vec<&str> = new.iter().map(String::as_str).collect();
+        new_refs.push("CHANGED");
+        let d = Diff {
+            ops: vec![Op::equal(0, 10), Op::insert(10, 1)],
+            old_tokens: old_refs.iter().map(ToString::to_string).collect(),
+            new_tokens: new_refs.iter().map(ToString::to_string).collect(),
+        };
+        let html = render_numbered_html(&d, Some(HtmlTheme::Dark));
+        assert!(html.contains("class=\"gap\""), "gap row missing");
+        assert!(
+            html.contains("class=\"ctx collapsed\""),
+            "collapsed rows missing"
+        );
+    }
+
+    #[test]
+    fn test_numbered_short_equal_run_not_collapsed() {
+        let d = diff(
+            vec![Op::equal(0, 3), Op::insert(3, 1)],
+            &["a", "b", "c"],
+            &["a", "b", "c", "d"],
+        );
+        let html = render_numbered_html(&d, Some(HtmlTheme::Dark));
+        assert!(
+            !html.contains("class=\"gap\""),
+            "short run must not collapse"
+        );
+        assert!(
+            !html.contains("ctx collapsed"),
+            "no collapsed rows expected"
+        );
+    }
+
+    #[test]
+    fn test_side_by_side_long_equal_run_collapses() {
+        let old: Vec<String> = (0..10).map(|i| format!("line {i}")).collect();
+        let old_refs: Vec<&str> = old.iter().map(String::as_str).collect();
+        let d = Diff {
+            ops: vec![Op::equal(0, 10)],
+            old_tokens: old_refs.iter().map(ToString::to_string).collect(),
+            new_tokens: old_refs.iter().map(ToString::to_string).collect(),
+        };
+        let html = render_side_by_side_html(&d, "o", "n", Some(HtmlTheme::Dark));
+        assert!(html.contains("class=\"gap\""), "gap row missing");
+        assert!(html.contains("ctx collapsed"), "collapsed rows missing");
+    }
+
+    #[test]
+    fn test_print_reveals_collapsed() {
+        let d = diff(vec![], &[], &[]);
+        let html = render_unified_html(&d, 3, "o", "n", Some(HtmlTheme::Dark));
+        assert!(
+            html.contains("tr.collapsed { display: table-row; }"),
+            "print must reveal collapsed rows"
+        );
+    }
+
+    #[test]
+    fn test_wrap_toggle_present() {
+        let d = diff(vec![], &[], &[]);
+        let html = render_unified_html(&d, 3, "o", "n", Some(HtmlTheme::Dark));
+        assert!(html.contains("wrap-off"), "wrap-off CSS missing");
+        assert!(html.contains("rustdiff-wrap"), "wrap persistence missing");
+    }
+
+    #[test]
+    fn test_xss_filenames_not_in_scripts() {
+        let payload = "</script><script>alert(1)</script>";
+        let d = diff(vec![Op::insert(0, 1)], &[], &["x"]);
+        let html = render_unified_html(&d, 3, payload, "n", Some(HtmlTheme::Dark));
+        assert!(
+            !html.contains("</script><script>"),
+            "script breakout from filename"
+        );
+        assert_eq!(
+            html.matches("<script>").count(),
+            2,
+            "only the two static script blocks may exist"
+        );
+        assert!(
+            html.contains("&lt;/script&gt;"),
+            "filename must be escaped in the title/headers"
         );
     }
 }

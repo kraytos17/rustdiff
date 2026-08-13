@@ -1,6 +1,6 @@
 use crate::diff::core::{compute_histogram_diff, myers::compute_diff};
 use crate::diff::data::{Diff, ensure_within_u32};
-use crate::diff::modes::DiffAlgorithm;
+use crate::diff::modes::{DiffAlgorithm, DiffOptions, keys_for};
 use regex::Regex;
 use std::sync::LazyLock;
 
@@ -18,21 +18,38 @@ pub fn diff_words(
     new_text: &str,
     algorithm: DiffAlgorithm,
 ) -> Result<Diff, String> {
+    diff_words_with(old_text, new_text, algorithm, DiffOptions::default())
+}
+
+/// Compute a word-level diff with [`DiffOptions`] normalization.
+///
+/// # Errors
+///
+/// Returns a `String` error if either input has more than `MAX_TOKENS` tokens,
+/// which the `u32`-indexed core cannot address.
+pub fn diff_words_with(
+    old_text: &str,
+    new_text: &str,
+    algorithm: DiffAlgorithm,
+    opts: DiffOptions,
+) -> Result<Diff, String> {
     let old_tokens = tokenize(&old_text.replace("\r\n", "\n"));
     let new_tokens = tokenize(&new_text.replace("\r\n", "\n"));
 
     ensure_within_u32(old_tokens.len(), "tokens")?;
     ensure_within_u32(new_tokens.len(), "tokens")?;
 
-    let old_refs: Vec<&str> = old_tokens.iter().map(String::as_str).collect();
-    let new_refs: Vec<&str> = new_tokens.iter().map(String::as_str).collect();
-    let ops = match algorithm {
+    let old_keys = keys_for(&old_tokens, opts);
+    let new_keys = keys_for(&new_tokens, opts);
+    let old_refs: Vec<&str> = old_keys.iter().map(String::as_str).collect();
+    let new_refs: Vec<&str> = new_keys.iter().map(String::as_str).collect();
+    let diff_ops = match algorithm {
         DiffAlgorithm::Histogram => compute_histogram_diff(&old_refs, &new_refs),
         DiffAlgorithm::Myers => compute_diff(&old_refs, &new_refs),
     };
 
     Ok(Diff {
-        ops,
+        ops: diff_ops,
         old_tokens,
         new_tokens,
     })
@@ -48,6 +65,7 @@ fn tokenize(text: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::diff::data::OpKind;
 
     #[test]
     fn test_tokenize_basic_words() {
@@ -125,6 +143,44 @@ mod tests {
             diff.ops.len() <= 8,
             "expected few runs, got {}: {diff:?}",
             diff.ops.len()
+        );
+    }
+
+    #[test]
+    fn test_ignore_whitespace_in_word_mode() {
+        let opts = DiffOptions {
+            ignore_whitespace: true,
+            ignore_case: false,
+        };
+        let diff = diff_words_with(
+            "hello  world\n",
+            "hello world\n",
+            DiffAlgorithm::Histogram,
+            opts,
+        )
+        .unwrap();
+        assert!(
+            diff.ops.iter().all(|op| op.kind == OpKind::Equal),
+            "ops: {diff:?}"
+        );
+    }
+
+    #[test]
+    fn test_ignore_case_in_word_mode() {
+        let opts = DiffOptions {
+            ignore_whitespace: false,
+            ignore_case: true,
+        };
+        let diff = diff_words_with(
+            "Hello World\n",
+            "hello world\n",
+            DiffAlgorithm::Histogram,
+            opts,
+        )
+        .unwrap();
+        assert!(
+            diff.ops.iter().all(|op| op.kind == OpKind::Equal),
+            "ops: {diff:?}"
         );
     }
 }

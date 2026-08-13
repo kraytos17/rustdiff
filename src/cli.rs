@@ -149,6 +149,32 @@ pub struct Cli {
         help = "Read files into memory instead of memory-mapping large files"
     )]
     pub no_mmap: bool,
+
+    /// Ignore whitespace differences within tokens
+    #[arg(
+        short = 'w',
+        long = "ignore-whitespace",
+        action = ArgAction::SetTrue,
+        help = "Ignore whitespace differences within tokens (line and word mode)"
+    )]
+    pub ignore_whitespace: bool,
+
+    /// Ignore case differences between tokens
+    #[arg(
+        short = 'i',
+        long = "ignore-case",
+        action = ArgAction::SetTrue,
+        help = "Ignore case differences when comparing tokens"
+    )]
+    pub ignore_case: bool,
+
+    /// Verify the diff is reversible before writing output
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        help = "Verify the computed diff is reversible (round-trip check)"
+    )]
+    pub verify: bool,
 }
 
 #[derive(Copy, Clone, Debug, ValueEnum)]

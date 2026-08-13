@@ -17,3 +17,10 @@ path = "fuzz_targets/diff_round_trip.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "render_round_trip"
+path = "fuzz_targets/render_round_trip.rs"
+test = false
+doc = false
+bench = false

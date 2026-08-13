@@ -14,8 +14,7 @@
 //! ```
 
 use libfuzzer_sys::fuzz_target;
-use rustdiff::diff::core::compute_histogram_diff;
-use rustdiff::diff::core::myers::compute_diff;
+use rustdiff::diff::core::{compute_histogram_diff, myers::compute_diff};
 use rustdiff::diff::data::{Diff, Op};
 
 fn split_tokens(bytes: &[u8]) -> Vec<String> {

@@ -1,15 +1,15 @@
 use clap::Parser;
 use rustdiff::cli::{Cli, ColorMode};
 use rustdiff::diff::data::{Diff, DiffStats, OpKind};
-use rustdiff::diff::modes::{diff_lines, diff_words};
-use rustdiff::diff::render::html::{
-    render_side_by_side_html, render_unified_html, render_word_html,
+use rustdiff::diff::modes::{DiffOptions, diff_lines_with, diff_words_with};
+use rustdiff::diff::render::{
+    html::{render_side_by_side_html, render_unified_html, render_word_html},
+    render_line_diff, render_unified_diff, render_word_diff,
 };
-use rustdiff::diff::render::{render_line_diff, render_unified_diff, render_word_diff};
 use rustdiff::fsio::{Source, read_file};
 use std::{
     fs::File,
-    io::{self, IsTerminal, Write},
+    io::{self, IsTerminal, Read, Write},
     process,
 };
 
@@ -29,15 +29,32 @@ fn main() {
 /// inputs differed (drives the `--exit-code` status) and propagates errors as
 /// `Err(message)` (drives exit code 2).
 fn run(opts: &Cli) -> Result<bool, String> {
+    if opts.old_file == "-" && opts.new_file == "-" {
+        return Err("cannot read both inputs from stdin".to_string());
+    }
+
     let old = read_source(&opts.old_file, !opts.no_mmap)?;
     let new = read_source(&opts.new_file, !opts.no_mmap)?;
     let old_text = source_str(&old, &opts.old_file)?;
     let new_text = source_str(&new, &opts.new_file)?;
+    let diff_opts = DiffOptions {
+        ignore_whitespace: opts.ignore_whitespace,
+        ignore_case: opts.ignore_case,
+    };
+
     let diff = if opts.word {
-        diff_words(old_text, new_text, opts.diff_algorithm)
+        diff_words_with(old_text, new_text, opts.diff_algorithm, diff_opts)
     } else {
-        diff_lines(old_text, new_text, opts.diff_algorithm)
+        diff_lines_with(old_text, new_text, opts.diff_algorithm, diff_opts)
     }?;
+
+    if opts.verify {
+        let old_refs: Vec<&str> = diff.old_tokens.iter().map(String::as_str).collect();
+        let new_refs: Vec<&str> = diff.new_tokens.iter().map(String::as_str).collect();
+        if !diff.validate_round_trip(&old_refs, &new_refs) {
+            return Err("diff verification failed: internal error".to_string());
+        }
+    }
 
     let has_changes = diff.ops.iter().any(|op| op.kind != OpKind::Equal);
     if opts.summary {
@@ -118,6 +135,13 @@ fn render_html(opts: &Cli, diff: &Diff) -> String {
 }
 
 fn read_source(path: &str, use_mmap: bool) -> Result<Source, String> {
+    if path == "-" {
+        let mut contents = String::new();
+        io::stdin()
+            .read_to_string(&mut contents)
+            .map_err(|e| format!("Error reading stdin: {e}"))?;
+        return Ok(Source::Small(contents));
+    }
     read_file(path, use_mmap).map_err(|e| format!("Error reading {path}: {e}"))
 }
 
@@ -170,6 +194,9 @@ mod tests {
             line: false,
             exit_code: false,
             no_mmap: true,
+            ignore_whitespace: false,
+            ignore_case: false,
+            verify: false,
         }
     }
 

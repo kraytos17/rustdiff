@@ -252,3 +252,131 @@ fn no_mmap_flag_reads_small_files() {
         .success()
         .stdout(predicate::str::contains("Changes:"));
 }
+
+#[test]
+fn ignore_case_makes_case_only_diff_vanish() {
+    let dir = temp_dir("ignore_case");
+    let old = dir.join("old.txt");
+    let new = dir.join("new.txt");
+    write(&old, "Hello World\n");
+    write(&new, "hello world\n");
+    bin()
+        .args([
+            "--ignore-case",
+            "--exit-code",
+            "-o",
+            "-",
+            old.to_str().unwrap(),
+            new.to_str().unwrap(),
+        ])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("  Hello World\n"));
+}
+
+#[test]
+fn ignore_whitespace_makes_whitespace_only_diff_vanish() {
+    let dir = temp_dir("ignore_ws");
+    let old = dir.join("old.txt");
+    let new = dir.join("new.txt");
+    write(&old, "fn  foo ( x )\n");
+    write(&new, "fn foo(x)\n");
+    bin()
+        .args([
+            "--ignore-whitespace",
+            "--exit-code",
+            "-o",
+            "-",
+            old.to_str().unwrap(),
+            new.to_str().unwrap(),
+        ])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("  fn  foo ( x )\n"));
+}
+
+#[test]
+fn ignore_flags_still_detect_real_changes() {
+    let dir = temp_dir("ignore_real_change");
+    let old = dir.join("old.txt");
+    let new = dir.join("new.txt");
+    write(&old, "alpha beta\n");
+    write(&new, "alpha GAMMA\n");
+    bin()
+        .args([
+            "--ignore-whitespace",
+            "--ignore-case",
+            "--exit-code",
+            "-o",
+            "-",
+            old.to_str().unwrap(),
+            new.to_str().unwrap(),
+        ])
+        .assert()
+        .code(1);
+}
+
+#[test]
+fn stdin_supports_dash_for_new_side() {
+    let dir = temp_dir("stdin_new");
+    let old = dir.join("old.txt");
+    write(&old, "alpha\nbeta\n");
+    bin()
+        .args([old.to_str().unwrap(), "-", "--summary"])
+        .write_stdin("alpha\nBETA\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Changes: +1, -1"));
+}
+
+#[test]
+fn stdin_supports_dash_for_old_side() {
+    let dir = temp_dir("stdin_old");
+    let new = dir.join("new.txt");
+    write(&new, "alpha\nBETA\n");
+    bin()
+        .args(["-", new.to_str().unwrap(), "--summary"])
+        .write_stdin("alpha\nbeta\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Changes: +1, -1"));
+}
+
+#[test]
+fn both_stdin_inputs_error() {
+    bin()
+        .args(["-", "-", "--summary"])
+        .write_stdin("x\n")
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains(
+            "cannot read both inputs from stdin",
+        ));
+}
+
+#[test]
+fn verify_flag_passes_on_valid_diff() {
+    let dir = temp_dir("verify");
+    let (old, new) = old_new_pair(&dir);
+    bin()
+        .args([
+            "--verify",
+            old.to_str().unwrap(),
+            new.to_str().unwrap(),
+            "--summary",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Changes:"));
+}
+
+#[test]
+fn verify_flag_passes_on_identical_inputs() {
+    let dir = temp_dir("verify_identical");
+    let file = dir.join("same.txt");
+    write(&file, "hello\nworld\n");
+    bin()
+        .args(["--verify", file.to_str().unwrap(), file.to_str().unwrap()])
+        .assert()
+        .success();
+}
