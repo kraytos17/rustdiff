@@ -3,10 +3,10 @@ use rustdiff::cli::Cli;
 use rustdiff::cli::ColorMode;
 use rustdiff::diff::data::DiffStats;
 use rustdiff::diff::modes::{diff_lines, diff_words};
-use rustdiff::diff::render::{
-    render_diff_outputs, render_line_diff, render_side_by_side_html, render_unified_diff,
-    render_word_diff,
+use rustdiff::diff::render::html::{
+    render_side_by_side_html, render_unified_html, render_word_html,
 };
+use rustdiff::diff::render::{render_line_diff, render_unified_diff, render_word_diff};
 use rustdiff::fsio::{Source, read_file};
 use std::{
     fs::File,
@@ -75,28 +75,31 @@ fn main() {
         eprintln!("Error writing diff to {output_path}: {e}");
         process::exit(1);
     }
-
     if opts.html {
         let base_name = output_path.trim_end_matches(".diff");
-        if opts.side_by_side {
-            let diff_path = format!("{base_name}.diff");
-            let result = File::create(&diff_path)
-                .and_then(|mut f| f.write_all(rendered.as_bytes()))
-                .and_then(|()| render_side_by_side_html(&rendered, base_name));
-            if let Err(e) = result {
-                eprintln!("Error generating side-by-side diff: {e}");
-            } else {
-                println!("Diff written to {diff_path}");
-                println!("Side-by-side HTML diff exported to {base_name}_side_by_side.html");
-            }
-        } else if let Err(e) = render_diff_outputs(&rendered, base_name) {
-            eprintln!("Error generating HTML diff: {e}");
+        let html = if opts.side_by_side {
+            render_side_by_side_html(&diff, &opts.old_file, &opts.new_file, opts.html_theme)
+        } else if opts.word {
+            render_word_html(&diff, opts.html_theme)
         } else {
-            println!("HTML diff exported to {base_name}.html");
+            render_unified_html(
+                &diff,
+                opts.unified.unwrap_or(3),
+                &opts.old_file,
+                &opts.new_file,
+                opts.html_theme,
+            )
+        };
+
+        let html_path = format!("{base_name}.html");
+        if let Err(e) = std::fs::write(&html_path, html) {
+            eprintln!("Error generating HTML diff: {e}");
+            process::exit(1);
+        } else {
+            println!("HTML diff exported to {html_path}");
         }
     }
-
-    if !opts.side_by_side && opts.output != "-" {
+    if opts.output != "-" {
         println!("Diff written to {output_path}");
     }
 }

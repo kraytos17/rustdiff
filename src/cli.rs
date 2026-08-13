@@ -1,4 +1,5 @@
 use crate::diff::modes::DiffAlgorithm;
+use crate::diff::render::html::HtmlTheme;
 use clap::{ArgAction, ArgGroup, Parser, ValueEnum, ValueHint};
 
 /// A high-performance, human-readable diff generator written in pure Rust.
@@ -75,12 +76,21 @@ pub struct Cli {
     #[arg(long, help = "Generate colorized HTML diff output")]
     pub html: bool,
 
+    /// HTML color theme
+    #[arg(
+        long,
+        value_enum,
+        default_value = "dark",
+        help = "HTML color theme: dark or light"
+    )]
+    pub html_theme: HtmlTheme,
+
     /// Generate side-by-side HTML diff (implies --html)
     #[arg(
         long,
         help = "Render a side-by-side HTML diff (requires --html)",
         requires = "html",
-        conflicts_with_all = ["word", "unified", "compact", "summary"]
+        conflicts_with_all = ["word"]
     )]
     pub side_by_side: bool,
 

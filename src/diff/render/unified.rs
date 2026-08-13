@@ -85,7 +85,7 @@ pub fn render_unified_diff(
 /// windowing counts lines (an Equal run of `len` is `len` context lines), then
 /// each hunk's selected lines are re-encoded back into contiguous runs.
 #[allow(clippy::too_many_lines)]
-fn group_into_hunks(ops: &[Op], context: usize) -> Vec<Hunk> {
+pub(crate) fn group_into_hunks(ops: &[Op], context: usize) -> Vec<Hunk> {
     let mut lines: Vec<(OpKind, usize, usize)> = Vec::new();
     let mut a_pos = 0usize;
     let mut b_pos = 0usize;

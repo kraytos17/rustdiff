@@ -16,7 +16,7 @@ rustdiff <OLD> <NEW> [OPTIONS]
 - Compact output (changes only, no context)
 - Summary output (insertion/deletion counts)
 - ANSI colors with `auto`, `always`, and `never` modes
-- HTML export: numbered and side-by-side layouts
+- HTML export: unified, side-by-side, and word-inline layouts, dark or light theme
 - Output to a file or stdout
 - Optional parallel diffing (`--features parallel`) — off by default, see below
 
@@ -57,8 +57,9 @@ The two positional arguments are paths to the original and modified files.
 | `--line` | Line-level diff (default) |
 | `--diff-algorithm <algo>` | `histogram` (default) or `myers` |
 | `--color <mode>` | `auto`, `always`, or `never` (default: `auto`) |
-| `--html` | Also write a colorized HTML file |
-| `--side-by-side` | Write a side-by-side HTML file (requires `--html`) |
+| `--html` | Write a unified HTML diff to `<output>.html` |
+| `--side-by-side` | Side-by-side HTML layout instead of unified (requires `--html`) |
+| `--html-theme <theme>` | HTML color theme: `dark` (default) or `light` |
 
 ### Color behavior
 
@@ -67,8 +68,8 @@ The two positional arguments are paths to the original and modified files.
 - `never`: force colors off
 
 In practice, the default output file (`changes.diff`) contains no ANSI codes
-unless you pass `--color always`. Use `--color always` with `--html` so the
-HTML output is colorized.
+unless you pass `--color always`. The HTML output is always colorized
+independently — `--color` only affects the text output.
 
 ### Examples
 
@@ -97,16 +98,21 @@ rustdiff old.txt new.txt --word -o -
 # Force the Myers algorithm instead of histogram
 rustdiff old.txt new.txt --diff-algorithm myers
 
-# Write a diff plus a numbered HTML file
-rustdiff old.txt new.txt --color always -o my.diff --html
+# Write a unified HTML diff
+rustdiff old.txt new.txt -o my.diff --html
 
-# Write a side-by-side HTML file
-rustdiff old.txt new.txt --color always -o my.diff --html --side-by-side
+# Side-by-side HTML with a light theme
+rustdiff old.txt new.txt -o my.diff --html --side-by-side --html-theme light
+
+# Word-level HTML with inline highlighting
+rustdiff old.txt new.txt --word -o my.diff --html
 ```
 
-With `--html`, `rustdiff` writes `<base>.html` (numbered lines) and
-`<base>.diff` next to the chosen output. With `--html --side-by-side`, it
-writes `<base>_side_by_side.html` instead.
+With `--html`, `rustdiff` writes `<output>.html` next to the chosen output.
+`--html` uses a unified layout (respecting `-u N`, default 3 context lines),
+`--side-by-side` switches to a two-column layout, and `--word` produces
+inline word highlighting. Colors are always applied in the HTML — no
+`--color` flag is needed.
 
 ## Output formats
 
@@ -182,14 +188,14 @@ Key types and functions:
 - `diff::modes::diff_lines`, `diff::modes::diff_words`
 - `diff::core::histogram::compute_histogram_diff`
 - `diff::core::myers::compute_diff`
-- `diff::render::render_line_diff`, `render_unified_diff`, `render_word_diff`,
-  `render_diff_outputs`, `render_side_by_side_html`
+- `diff::render::render_line_diff`, `render_unified_diff`, `render_word_diff`
+- `diff::render::html::render_unified_html`, `render_side_by_side_html`,
+  `render_word_html`, `render_numbered_html`
 - `diff::data::Diff`, `Op`, `Hunk`, `DiffStats`
 
 ## Compatibility notes
 
-- `--side-by-side` requires `--html` and conflicts with `--word`,
-  `--unified`, `--compact`, and `--summary`.
+- `--side-by-side` requires `--html` and conflicts with `--word`.
 - With `--word` plus `--unified` or `--compact`, each word token is rendered
   on its own line rather than inline.
 
