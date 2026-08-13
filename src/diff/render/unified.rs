@@ -1,4 +1,4 @@
-use crate::diff::data::{Diff, Hunk, Op, OpKind, u32_len};
+use crate::diff::data::{Diff, Hunk, Op, OpKind, coalesce, u32_len};
 use std::fmt::Write;
 
 const RED: &str = "\x1b[31m";
@@ -46,11 +46,7 @@ pub fn render_unified_diff(
         }
 
         for op in &hunk.ops {
-            let tokens = match op.kind {
-                OpKind::Equal | OpKind::Delete => &diff.old_tokens,
-                OpKind::Insert => &diff.new_tokens,
-            };
-
+            let tokens = diff.tokens_for(op.kind);
             let start = op.start as usize;
             for line in &tokens[start..start + op.len as usize] {
                 match op.kind {
@@ -90,25 +86,20 @@ pub(crate) fn group_into_hunks(ops: &[Op], context: usize) -> Vec<Hunk> {
     let mut a_pos = 0usize;
     let mut b_pos = 0usize;
     for op in ops {
+        let len = op.len as usize;
         match op.kind {
             OpKind::Equal => {
-                for _ in 0..op.len {
-                    lines.push((OpKind::Equal, a_pos, b_pos));
-                    a_pos += 1;
-                    b_pos += 1;
-                }
+                lines.extend((0..len).map(|k| (OpKind::Equal, a_pos + k, b_pos + k)));
+                a_pos += len;
+                b_pos += len;
             }
             OpKind::Delete => {
-                for _ in 0..op.len {
-                    lines.push((OpKind::Delete, a_pos, b_pos));
-                    a_pos += 1;
-                }
+                lines.extend((0..len).map(|k| (OpKind::Delete, a_pos + k, b_pos)));
+                a_pos += len;
             }
             OpKind::Insert => {
-                for _ in 0..op.len {
-                    lines.push((OpKind::Insert, a_pos, b_pos));
-                    b_pos += 1;
-                }
+                lines.extend((0..len).map(|k| (OpKind::Insert, a_pos, b_pos + k)));
+                b_pos += len;
             }
         }
     }
@@ -168,25 +159,18 @@ pub(crate) fn group_into_hunks(ops: &[Op], context: usize) -> Vec<Hunk> {
             idx += 1;
         }
 
-        let mut hunk_ops: Vec<Op> = Vec::new();
-        for (kind, a_idx, b_idx) in hunk_lines {
-            let start = match kind {
-                OpKind::Equal | OpKind::Delete => a_idx,
-                OpKind::Insert => b_idx,
-            };
-            if let Some(last) = hunk_ops.last_mut()
-                && last.kind == kind
-                && last.start as usize + last.len as usize == start
-            {
-                last.len += 1;
-                continue;
-            }
-            hunk_ops.push(Op {
+        let mut hunk_ops: Vec<Op> = hunk_lines
+            .into_iter()
+            .map(|(kind, a_idx, b_idx)| Op {
                 kind,
-                start: u32_len(start),
+                start: u32_len(match kind {
+                    OpKind::Equal | OpKind::Delete => a_idx,
+                    OpKind::Insert => b_idx,
+                }),
                 len: 1,
-            });
-        }
+            })
+            .collect();
+        coalesce(&mut hunk_ops);
 
         let len_a = hunk_ops
             .iter()

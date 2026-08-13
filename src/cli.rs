@@ -76,14 +76,13 @@ pub struct Cli {
     #[arg(long, help = "Generate colorized HTML diff output")]
     pub html: bool,
 
-    /// HTML color theme
+    /// HTML color theme (default: follow the viewer's OS preference)
     #[arg(
         long,
         value_enum,
-        default_value = "dark",
-        help = "HTML color theme: dark or light"
+        help = "HTML color theme: dark or light (default: follow the viewer's OS preference)"
     )]
-    pub html_theme: HtmlTheme,
+    pub html_theme: Option<HtmlTheme>,
 
     /// Generate side-by-side HTML diff (implies --html)
     #[arg(
@@ -134,6 +133,22 @@ pub struct Cli {
         help = "Use line-level diff (default mode)"
     )]
     pub line: bool,
+
+    /// Exit with 0 if no differences, 1 if differences, 2 on error (POSIX diff)
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        help = "Exit 0 if no differences, 1 if differences found, 2 on error"
+    )]
+    pub exit_code: bool,
+
+    /// Disable memory-mapping for file input
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        help = "Read files into memory instead of memory-mapping large files"
+    )]
+    pub no_mmap: bool,
 }
 
 #[derive(Copy, Clone, Debug, ValueEnum)]

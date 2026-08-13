@@ -1,11 +1,10 @@
-#![allow(clippy::suspicious_operation_groupings)]
-
 use super::{Snake, trim_common_ends};
 use crate::diff::core::myers::diff_u32;
 use crate::diff::data::{Op, coalesce, u32_len};
 use crate::diff::intern::intern_both;
 use rapidhash::{HashMapExt, RapidHashMap};
 use smallvec::SmallVec;
+use std::cmp::Reverse;
 
 /// Anchors only on tokens occurring at most this many times on either side.
 /// Above this, histogram falls back to Myers to avoid quadratic behavior.
@@ -135,13 +134,11 @@ fn build_counts(a: &[u32]) -> RapidHashMap<u32, u32> {
 /// Positions of `id` in `seq`. Only ever called for the already-chosen rarest
 /// token, so this is one scan per side rather than a full position table.
 fn positions_of(seq: &[u32], id: u32) -> SmallVec<[u32; 4]> {
-    let mut pos = SmallVec::new();
-    for (i, &tok) in seq.iter().enumerate() {
-        if tok == id {
-            pos.push(u32::try_from(i).expect("token position exceeds u32"));
-        }
-    }
-    pos
+    seq.iter()
+        .enumerate()
+        .filter(|(_, t)| **t == id)
+        .map(|(i, _)| u32::try_from(i).expect("token position exceeds u32"))
+        .collect()
 }
 
 /// Pick the token present in both sides whose combined occurrence count is
@@ -151,31 +148,17 @@ fn find_rarest_common_token(
     counts_a: &RapidHashMap<u32, u32>,
     counts_b: &RapidHashMap<u32, u32>,
 ) -> Option<u32> {
-    let mut best: Option<(u32, u32)> = None;
-    for (&id, &ca) in counts_a {
-        if ca == 0 || ca > MAX_OCCURRENCES {
-            continue;
-        }
-
-        let Some(&cb) = counts_b.get(&id) else {
-            continue;
-        };
-        if cb == 0 || cb > MAX_OCCURRENCES {
-            continue;
-        }
-
-        let combined = ca + cb;
-        let better = match best {
-            None => true,
-            Some((best_id, best_combined)) => {
-                combined < best_combined || (combined == best_combined && id < best_id)
-            }
-        };
-        if better {
-            best = Some((id, combined));
-        }
-    }
-    best.map(|(id, _)| id)
+    counts_a
+        .iter()
+        .filter(|(_, ca)| **ca > 0 && **ca <= MAX_OCCURRENCES)
+        .filter_map(|(&id, &ca)| {
+            counts_b
+                .get(&id)
+                .filter(|cb| **cb > 0 && **cb <= MAX_OCCURRENCES)
+                .map(|&cb| (id, ca + cb))
+        })
+        .min_by_key(|c| (c.1, c.0))
+        .map(|(id, _)| id)
 }
 
 /// Extend every `(a_pos, b_pos)` occurrence pair of the chosen token into a
@@ -185,23 +168,19 @@ fn find_best_snake(a: &[u32], b: &[u32], apos: &[u32], bpos: &[u32]) -> Snake {
     let n = a.len();
     let m = b.len();
 
-    let mut best: Option<Snake> = None;
-    for &ai in apos {
-        for &bi in bpos {
-            let snake = extend_snake(a, b, ai as usize, bi as usize);
-            let better = best.is_none_or(|current| {
-                snake.len() > current.len()
-                    || (snake.len() == current.len()
-                        && center_dist(&snake, n, m) < center_dist(&current, n, m))
-            });
-            if better {
-                best = Some(snake);
-            }
-        }
-    }
-    best.expect("rarest common token always yields a non-empty snake")
+    apos.iter()
+        .flat_map(|&ai| {
+            bpos.iter()
+                .map(move |&bi| extend_snake(a, b, ai as usize, bi as usize))
+        })
+        .max_by_key(|s| (s.len(), Reverse(center_dist(s, n, m))))
+        .expect("rarest common token always yields a non-empty snake")
 }
 
+#[allow(
+    clippy::suspicious_operation_groupings,
+    reason = "a[i - 1 - left] == b[j - 1 - left] compares the same offset in two distinct sequences"
+)]
 fn extend_snake(a: &[u32], b: &[u32], i: usize, j: usize) -> Snake {
     let mut left = 0;
     while i > left && j > left && a[i - 1 - left] == b[j - 1 - left] {
@@ -213,6 +192,7 @@ fn extend_snake(a: &[u32], b: &[u32], i: usize, j: usize) -> Snake {
     {
         right += 1;
     }
+
     Snake {
         x: i - left,
         y: j - left,

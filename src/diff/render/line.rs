@@ -9,11 +9,7 @@ const RESET: &str = "\x1B[0m";
 pub fn render_line_diff(diff: &Diff, color: bool) -> String {
     let mut output = String::new();
     for op in &diff.ops {
-        let tokens = match op.kind {
-            OpKind::Equal | OpKind::Delete => &diff.old_tokens,
-            OpKind::Insert => &diff.new_tokens,
-        };
-
+        let tokens = diff.tokens_for(op.kind);
         let start = op.start as usize;
         for text in &tokens[start..start + op.len as usize] {
             match op.kind {

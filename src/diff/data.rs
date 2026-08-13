@@ -55,21 +55,27 @@ pub struct Diff {
 }
 
 impl Diff {
+    /// The token array an op of `kind` indexes into: `old_tokens` for
+    /// Equal/Delete, `new_tokens` for Insert.
+    #[must_use]
+    pub fn tokens_for(&self, kind: OpKind) -> &[String] {
+        match kind {
+            OpKind::Equal | OpKind::Delete => &self.old_tokens,
+            OpKind::Insert => &self.new_tokens,
+        }
+    }
+
     /// Unroll every run into individual `(OpKind, &str)` token edits.
     ///
     /// The word render needs per-token granularity for its replacement-grouping
     /// lookahead, so it consumes this stream rather than the runs directly.
     #[must_use]
     pub fn edits(&self) -> Vec<(OpKind, &str)> {
-        let mut edits = Vec::with_capacity(self.ops.len());
+        let capacity = self.ops.iter().map(|op| op.len as usize).sum();
+        let mut edits = Vec::with_capacity(capacity);
         for op in &self.ops {
-            let tokens = match op.kind {
-                OpKind::Equal | OpKind::Delete => &self.old_tokens,
-                OpKind::Insert => &self.new_tokens,
-            };
-
             let start = op.start as usize;
-            for text in &tokens[start..start + op.len as usize] {
+            for text in &self.tokens_for(op.kind)[start..start + op.len as usize] {
                 edits.push((op.kind, text.as_str()));
             }
         }
@@ -144,17 +150,22 @@ impl DiffStats {
     /// Sum run lengths so counts reflect per-line insertions/deletions.
     #[must_use]
     pub fn from_ops(ops: &[Op]) -> Self {
-        let mut stats = Self::default();
-        for op in ops {
-            match op.kind {
-                OpKind::Insert => stats.inserts += op.len as usize,
-                OpKind::Delete => stats.deletes += op.len as usize,
-                OpKind::Equal => {}
-            }
-        }
+        let inserts = ops
+            .iter()
+            .filter(|op| op.kind == OpKind::Insert)
+            .map(|op| op.len as usize)
+            .sum();
+        let deletes = ops
+            .iter()
+            .filter(|op| op.kind == OpKind::Delete)
+            .map(|op| op.len as usize)
+            .sum();
 
-        stats.changes = stats.inserts + stats.deletes;
-        stats
+        Self {
+            inserts,
+            deletes,
+            changes: inserts + deletes,
+        }
     }
 }
 
@@ -174,7 +185,26 @@ pub(crate) fn coalesce(ops: &mut Vec<Op>) {
     *ops = out;
 }
 
+/// Maximum number of tokens the `u32`-indexed core can address. Inputs above
+/// this are rejected up front with a clean error instead of panicking in
+/// [`u32_len`].
+pub(crate) const MAX_TOKENS: usize = u32::MAX as usize;
+
+/// Reject token counts the `u32`-indexed core cannot address.
+pub(crate) fn ensure_within_u32(count: usize, what: &str) -> Result<(), String> {
+    if count > MAX_TOKENS {
+        Err(format!(
+            "file too large to diff: exceeds {MAX_TOKENS} {what}"
+        ))
+    } else {
+        Ok(())
+    }
+}
+
 /// Convert a `usize` length/position to `u32`, the op field width.
+///
+/// Callers guard with [`ensure_within_u32`] before invoking the core, so this
+/// panic is a defensive backstop, not a reachable failure path for the CLI.
 pub(crate) fn u32_len(len: usize) -> u32 {
     u32::try_from(len).expect("diff length exceeds u32")
 }
@@ -188,6 +218,19 @@ mod tests {
         assert_eq!(Op::equal(0, 3).kind, OpKind::Equal);
         assert_eq!(Op::insert(1, 2).start, 1);
         assert_eq!(Op::delete(2, 1).len, 1);
+    }
+
+    #[test]
+    fn test_ensure_within_u32_accepts_small() {
+        assert_eq!(ensure_within_u32(0, "lines"), Ok(()));
+        assert_eq!(ensure_within_u32(1000, "tokens"), Ok(()));
+        assert_eq!(ensure_within_u32(MAX_TOKENS, "lines"), Ok(()));
+    }
+
+    #[test]
+    fn test_ensure_within_u32_rejects_overflow() {
+        let err = ensure_within_u32(MAX_TOKENS + 1, "lines").unwrap_err();
+        assert!(err.contains("too large to diff"), "got: {err}");
     }
 
     #[test]

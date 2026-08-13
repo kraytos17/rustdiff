@@ -1,40 +1,40 @@
 use crate::diff::core::{compute_histogram_diff, myers::compute_diff};
-use crate::diff::data::Diff;
+use crate::diff::data::{Diff, ensure_within_u32};
 use crate::diff::modes::DiffAlgorithm;
-use memchr::memchr_iter;
 
-pub fn diff_lines(old: &str, new: &str, algorithm: DiffAlgorithm) -> Diff {
+/// Compute a line-level diff.
+///
+/// # Errors
+///
+/// Returns a `String` error if either input has more than `MAX_TOKENS` lines,
+/// which the `u32`-indexed core cannot address.
+pub fn diff_lines(old: &str, new: &str, algorithm: DiffAlgorithm) -> Result<Diff, String> {
     let old_lines = split_and_trim_lines(old);
     let new_lines = split_and_trim_lines(new);
+
+    ensure_within_u32(old_lines.len(), "lines")?;
+    ensure_within_u32(new_lines.len(), "lines")?;
+
     let old_refs: Vec<&str> = old_lines.iter().map(String::as_str).collect();
     let new_refs: Vec<&str> = new_lines.iter().map(String::as_str).collect();
-
     let ops = match algorithm {
         DiffAlgorithm::Histogram => compute_histogram_diff(&old_refs, &new_refs),
         DiffAlgorithm::Myers => compute_diff(&old_refs, &new_refs),
     };
 
-    Diff {
+    Ok(Diff {
         ops,
         old_tokens: old_lines,
         new_tokens: new_lines,
-    }
+    })
 }
 
-/// Split on `\n` (replicating `str::lines()` semantics: a trailing `\r` is
-/// trimmed from each line, and a trailing newline does not add an empty line).
-/// Uses `memchr` for a guaranteed SIMD newline scan on large inputs.
+/// Split on `\n` via [`str::lines`] semantics: a trailing `\r` is trimmed from
+/// each line ending (CRLF), and a trailing newline does not add an empty line.
+/// `str::lines` is itself memchr-accelerated, so large inputs still get a fast
+/// newline scan.
 fn split_and_trim_lines(text: &str) -> Vec<String> {
-    let mut lines = Vec::new();
-    let mut start = 0;
-    for idx in memchr_iter(b'\n', text.as_bytes()) {
-        lines.push(text[start..idx].trim_end_matches('\r').to_string());
-        start = idx + 1;
-    }
-    if start < text.len() {
-        lines.push(text[start..].trim_end_matches('\r').to_string());
-    }
-    lines
+    text.lines().map(str::to_string).collect()
 }
 
 #[cfg(test)]

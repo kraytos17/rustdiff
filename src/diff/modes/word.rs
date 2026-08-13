@@ -1,6 +1,5 @@
-use crate::diff::core::compute_histogram_diff;
-use crate::diff::core::myers::compute_diff;
-use crate::diff::data::Diff;
+use crate::diff::core::{compute_histogram_diff, myers::compute_diff};
+use crate::diff::data::{Diff, ensure_within_u32};
 use crate::diff::modes::DiffAlgorithm;
 use regex::Regex;
 use std::sync::LazyLock;
@@ -8,9 +7,22 @@ use std::sync::LazyLock;
 static WORD_TOKEN_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(\[-.*?\+.*?\]|[^\s]+\s*|\n)").unwrap());
 
-pub fn diff_words(old_text: &str, new_text: &str, algorithm: DiffAlgorithm) -> Diff {
+/// Compute a word-level diff.
+///
+/// # Errors
+///
+/// Returns a `String` error if either input has more than `MAX_TOKENS` tokens,
+/// which the `u32`-indexed core cannot address.
+pub fn diff_words(
+    old_text: &str,
+    new_text: &str,
+    algorithm: DiffAlgorithm,
+) -> Result<Diff, String> {
     let old_tokens = tokenize(&old_text.replace("\r\n", "\n"));
     let new_tokens = tokenize(&new_text.replace("\r\n", "\n"));
+
+    ensure_within_u32(old_tokens.len(), "tokens")?;
+    ensure_within_u32(new_tokens.len(), "tokens")?;
 
     let old_refs: Vec<&str> = old_tokens.iter().map(String::as_str).collect();
     let new_refs: Vec<&str> = new_tokens.iter().map(String::as_str).collect();
@@ -19,11 +31,11 @@ pub fn diff_words(old_text: &str, new_text: &str, algorithm: DiffAlgorithm) -> D
         DiffAlgorithm::Myers => compute_diff(&old_refs, &new_refs),
     };
 
-    Diff {
+    Ok(Diff {
         ops,
         old_tokens,
         new_tokens,
-    }
+    })
 }
 
 fn tokenize(text: &str) -> Vec<String> {
@@ -68,7 +80,7 @@ mod tests {
     }
 
     fn round_trip(old: &str, new: &str, algorithm: DiffAlgorithm) {
-        let diff = diff_words(old, new, algorithm);
+        let diff = diff_words(old, new, algorithm).unwrap();
         let old_tokens = tokenize(&old.replace("\r\n", "\n"));
         let new_tokens = tokenize(&new.replace("\r\n", "\n"));
         let old_refs: Vec<&str> = old_tokens.iter().map(String::as_str).collect();
@@ -91,7 +103,9 @@ mod tests {
             "hello\r\nworld\r\n",
             "hello\r\nrust\r\n",
             DiffAlgorithm::Histogram,
-        );
+        )
+        .unwrap();
+
         for (_, text) in diff.edits() {
             assert!(!text.contains('\r'), "CR leaked into diff op: {text:?}");
         }
@@ -104,7 +118,9 @@ mod tests {
             "hello world foo",
             "hello rust foo",
             DiffAlgorithm::Histogram,
-        );
+        )
+        .unwrap();
+
         assert!(
             diff.ops.len() <= 8,
             "expected few runs, got {}: {diff:?}",

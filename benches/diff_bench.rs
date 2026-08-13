@@ -77,26 +77,26 @@ fn bench_diff(c: &mut Criterion) {
         };
         c.benchmark_group(format!("diff_lines/{label}"))
             .bench_function("typical", |b| {
-                b.iter(|| diff_lines(&typical_old, &typical_new, algorithm));
+                b.iter(|| diff_lines(&typical_old, &typical_new, algorithm).unwrap());
             })
             .bench_function("rewritten", |b| {
-                b.iter(|| diff_lines(&rewritten_old, &rewritten_new, algorithm));
+                b.iter(|| diff_lines(&rewritten_old, &rewritten_new, algorithm).unwrap());
             })
             .bench_function("repetitive", |b| {
-                b.iter(|| diff_lines(&repetitive_old, &repetitive_new, algorithm));
+                b.iter(|| diff_lines(&repetitive_old, &repetitive_new, algorithm).unwrap());
             })
             .bench_function("large", |b| {
-                b.iter(|| diff_lines(&large_old, &large_new, algorithm));
+                b.iter(|| diff_lines(&large_old, &large_new, algorithm).unwrap());
             });
     }
 
     c.benchmark_group("diff_words/histogram")
         .bench_function("minified", |b| {
-            b.iter(|| diff_words(&min_old, &min_new, DiffAlgorithm::Histogram));
+            b.iter(|| diff_words(&min_old, &min_new, DiffAlgorithm::Histogram).unwrap());
         });
     c.benchmark_group("diff_words/myers")
         .bench_function("minified", |b| {
-            b.iter(|| diff_words(&min_old, &min_new, DiffAlgorithm::Myers));
+            b.iter(|| diff_words(&min_old, &min_new, DiffAlgorithm::Myers).unwrap());
         });
 }
 

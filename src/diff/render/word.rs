@@ -30,7 +30,7 @@ fn render_word_edits(edits: &[(OpKind, &str)], color: bool) -> String {
                 i += 1;
             }
             (OpKind::Insert, insert_text) => {
-                let (consumed, delete_text) = find_matching_delete(&edits[i..]);
+                let (consumed, delete_text) = find_matching(&edits[i..], OpKind::Delete);
                 if let Some(delete_text) = delete_text {
                     if render_grouped(&mut line_buf, delete_text, insert_text, color) {
                         output.push_str(&line_buf);
@@ -46,7 +46,7 @@ fn render_word_edits(edits: &[(OpKind, &str)], color: bool) -> String {
                 }
             }
             (OpKind::Delete, delete_text) => {
-                let (consumed, insert_text) = find_matching_insert(&edits[i..]);
+                let (consumed, insert_text) = find_matching(&edits[i..], OpKind::Insert);
                 if let Some(insert_text) = insert_text {
                     if render_grouped(&mut line_buf, delete_text, insert_text, color) {
                         output.push_str(&line_buf);
@@ -70,49 +70,22 @@ fn render_word_edits(edits: &[(OpKind, &str)], color: bool) -> String {
     output
 }
 
-/// Look for a delete edit that matches this insert, skipping whitespace.
-fn find_matching_delete<'a>(edits: &'a [(OpKind, &'a str)]) -> (usize, Option<&'a str>) {
+/// Look for an edit of `target` kind that matches this one, skipping
+/// whitespace-only edits in between. Returns the number of edits consumed and
+/// the matched text (bounded by `MAX_LOOKAHEAD`).
+fn find_matching<'a>(edits: &'a [(OpKind, &'a str)], target: OpKind) -> (usize, Option<&'a str>) {
     let mut i = 1;
     let mut skip_whitespace = false;
     let mut steps = 0;
     while i < edits.len() && steps < MAX_LOOKAHEAD {
         match edits[i] {
-            (OpKind::Delete, text) => {
-                return (i + 1, Some(text));
-            }
+            (kind, text) if kind == target => return (i + 1, Some(text)),
             (OpKind::Equal, text) if text.trim().is_empty() => {
                 skip_whitespace = true;
                 steps += 1;
                 i += 1;
             }
-            _ => {
-                break;
-            }
-        }
-    }
-
-    (if skip_whitespace { i } else { 1 }, None)
-}
-
-/// Look for an insert edit that matches this delete, skipping whitespace.
-fn find_matching_insert<'a>(edits: &'a [(OpKind, &'a str)]) -> (usize, Option<&'a str>) {
-    let mut i = 1;
-    let mut skip_whitespace = false;
-    let mut steps = 0;
-
-    while i < edits.len() && steps < MAX_LOOKAHEAD {
-        match edits[i] {
-            (OpKind::Insert, text) => {
-                return (i + 1, Some(text));
-            }
-            (OpKind::Equal, text) if text.trim().is_empty() => {
-                skip_whitespace = true;
-                steps += 1;
-                i += 1;
-            }
-            _ => {
-                break;
-            }
+            _ => break,
         }
     }
 
@@ -120,15 +93,13 @@ fn find_matching_insert<'a>(edits: &'a [(OpKind, &'a str)]) -> (usize, Option<&'
 }
 
 fn split_trailing_space(s: &str) -> (&str, &str) {
-    let trimmed = s.trim_end_matches(|c: char| c.is_whitespace());
-    let space = &s[trimmed.len()..];
-    (trimmed, space)
+    let trimmed = s.trim_end_matches(char::is_whitespace);
+    s.split_at(trimmed.len())
 }
 
 fn render_grouped(buf: &mut String, old: &str, new: &str, color: bool) -> bool {
     let (old_word, old_space) = split_trailing_space(old);
     let (new_word, new_space) = split_trailing_space(new);
-
     if color {
         write!(
             buf,
@@ -180,7 +151,7 @@ mod tests {
     #[test]
     fn test_find_matching_delete_adjacent() {
         let edits = vec![(OpKind::Insert, "hello"), (OpKind::Delete, "world")];
-        let (consumed, text) = find_matching_delete(&edits);
+        let (consumed, text) = find_matching(&edits, OpKind::Delete);
         assert_eq!(consumed, 2);
         assert_eq!(text, Some("world"));
     }
@@ -192,7 +163,8 @@ mod tests {
             (OpKind::Equal, " "),
             (OpKind::Delete, "world"),
         ];
-        let (consumed, text) = find_matching_delete(&edits);
+
+        let (consumed, text) = find_matching(&edits, OpKind::Delete);
         assert_eq!(consumed, 3);
         assert_eq!(text, Some("world"));
     }
@@ -203,8 +175,9 @@ mod tests {
         for _ in 0..MAX_LOOKAHEAD {
             edits.push((OpKind::Equal, " "));
         }
+
         edits.push((OpKind::Delete, "world"));
-        let (consumed, text) = find_matching_delete(&edits);
+        let (consumed, text) = find_matching(&edits, OpKind::Delete);
         assert!(text.is_none());
         assert_eq!(consumed, 1 + MAX_LOOKAHEAD);
     }
@@ -212,7 +185,7 @@ mod tests {
     #[test]
     fn test_find_matching_insert_adjacent() {
         let edits = vec![(OpKind::Delete, "hello"), (OpKind::Insert, "world")];
-        let (consumed, text) = find_matching_insert(&edits);
+        let (consumed, text) = find_matching(&edits, OpKind::Insert);
         assert_eq!(consumed, 2);
         assert_eq!(text, Some("world"));
     }
@@ -224,7 +197,8 @@ mod tests {
             (OpKind::Equal, " "),
             (OpKind::Insert, "world"),
         ];
-        let (consumed, text) = find_matching_insert(&edits);
+
+        let (consumed, text) = find_matching(&edits, OpKind::Insert);
         assert_eq!(consumed, 3);
         assert_eq!(text, Some("world"));
     }
@@ -235,8 +209,9 @@ mod tests {
         for _ in 0..MAX_LOOKAHEAD {
             edits.push((OpKind::Equal, " "));
         }
+
         edits.push((OpKind::Insert, "world"));
-        let (consumed, text) = find_matching_insert(&edits);
+        let (consumed, text) = find_matching(&edits, OpKind::Insert);
         assert!(text.is_none());
         assert_eq!(consumed, 1 + MAX_LOOKAHEAD);
     }
@@ -244,7 +219,7 @@ mod tests {
     #[test]
     fn test_find_matching_delete_no_match() {
         let edits = vec![(OpKind::Insert, "hello"), (OpKind::Insert, "world")];
-        let (consumed, text) = find_matching_delete(&edits);
+        let (consumed, text) = find_matching(&edits, OpKind::Delete);
         assert!(text.is_none());
         assert_eq!(consumed, 1);
     }
@@ -292,6 +267,7 @@ mod tests {
             &["hello ", "\n"],
             &["hello ", "very", " big", "\n"],
         );
+
         let result = render_word_diff(&d, false);
         assert!(result.contains("[+very]"), "result: {result:?}");
         assert!(result.contains("[+ big]"), "result: {result:?}");

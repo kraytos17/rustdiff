@@ -1,5 +1,3 @@
-#![allow(clippy::many_single_char_names, clippy::suspicious_operation_groupings)]
-
 use super::{Snake, trim_common_ends};
 use crate::diff::data::{Op, coalesce, u32_len};
 use crate::diff::intern::intern_both;
@@ -155,6 +153,11 @@ fn diff_recursive(
 /// Run the forward (top-left) and reverse (bottom-right) Myers fronts until
 /// they overlap, returning the "middle snake" where the shortest path crosses
 /// the diagonal.
+#[allow(
+    clippy::many_single_char_names,
+    clippy::suspicious_operation_groupings,
+    reason = "x/y/k/d/sx/sy and the vf[ki - 1] < vf[ki + 1] diagonals follow Myers' paper notation"
+)]
 fn find_middle_snake(a: &[u32], b: &[u32], vf: &mut [isize], vb: &mut [isize]) -> Snake {
     let n = a.len().cast_signed();
     let m = b.len().cast_signed();
@@ -236,19 +239,15 @@ fn find_middle_snake(a: &[u32], b: &[u32], vf: &mut [isize], vb: &mut [isize]) -
 }
 
 fn common_prefix_len(a: &[u32], b: &[u32]) -> usize {
-    let mut i = 0;
-    while i < a.len() && i < b.len() && a[i] == b[i] {
-        i += 1;
-    }
-    i
+    a.iter().zip(b).take_while(|(x, y)| x == y).count()
 }
 
 fn common_suffix_len(a: &[u32], b: &[u32]) -> usize {
-    let mut i = 0;
-    while i < a.len() && i < b.len() && a[a.len() - 1 - i] == b[b.len() - 1 - i] {
-        i += 1;
-    }
-    i
+    a.iter()
+        .rev()
+        .zip(b.iter().rev())
+        .take_while(|(x, y)| x == y)
+        .count()
 }
 
 #[cfg(test)]

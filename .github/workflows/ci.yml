@@ -45,6 +45,37 @@ jobs:
           RUSTDOCFLAGS: "-D warnings"
         run: cargo doc --locked --no-deps
 
+  features:
+    name: Feature Matrix (${{ matrix.features }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        features: ["--no-default-features", "--all-features"]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust 1.97
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.97.0
+          components: clippy
+
+      - name: Cache cargo builds
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check with ${{ matrix.features }}
+        run: cargo check --locked ${{ matrix.features }}
+
+      - name: Clippy with ${{ matrix.features }}
+        run: cargo clippy --locked --all-targets ${{ matrix.features }} -- -D warnings -W clippy::pedantic -W clippy::nursery
+
+      - name: Test with ${{ matrix.features }}
+        run: cargo test --locked ${{ matrix.features }}
+
   build:
     name: Build Optimized Binary
     runs-on: ubuntu-latest

@@ -29,15 +29,15 @@ impl Source {
 }
 
 /// Read a file's contents, memory-mapping files at or above the mmap threshold
-/// (1 MiB).
+/// (1 MiB) unless `use_mmap` is `false`.
 ///
 /// # Errors
 ///
 /// Returns an error if the file cannot be opened or read, or if a small file is
 /// not valid UTF-8. (Mapped files validate UTF-8 lazily via [`Source::as_str`].)
-pub fn read_file(path: &str) -> io::Result<Source> {
+pub fn read_file(path: &str, use_mmap: bool) -> io::Result<Source> {
     let mut file = File::open(path)?;
-    if file.metadata()?.len() >= MMAP_THRESHOLD {
+    if use_mmap && file.metadata()?.len() >= MMAP_THRESHOLD {
         // SAFETY: the mapping is read-only and we never modify the file. As with
         // any mmap, a concurrent external writer could fault the process (SIGBUS),
         // which is the standard tradeoff for a one-shot CLI tool.
@@ -60,7 +60,7 @@ mod tests {
         let path = dir.join(format!("rustdiff_fsio_{}", std::process::id()));
         std::fs::write(&path, b"hello\nworld\n").unwrap();
 
-        let source = read_file(path.to_str().unwrap()).unwrap();
+        let source = read_file(path.to_str().unwrap(), true).unwrap();
         assert!(matches!(source, Source::Small(_)));
         assert_eq!(source.as_str().unwrap(), "hello\nworld\n");
 

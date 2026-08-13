@@ -1,4 +1,5 @@
 use rapidhash::{HashMapExt, RapidHashMap};
+use std::collections::hash_map::Entry;
 
 /// Maps distinct tokens to dense `u32` IDs and back.
 ///
@@ -25,14 +26,16 @@ impl<'a> Interner<'a> {
     ///
     /// Panics if the number of distinct tokens exceeds `u32::MAX`.
     pub fn intern(&mut self, s: &'a str) -> u32 {
-        if let Some(&id) = self.ids.get(s) {
-            return id;
+        match self.ids.entry(s) {
+            Entry::Occupied(entry) => *entry.get(),
+            Entry::Vacant(entry) => {
+                let id =
+                    u32::try_from(self.tokens.len()).expect("distinct token count exceeds u32");
+                self.tokens.push(s);
+                entry.insert(id);
+                id
+            }
         }
-
-        let id = u32::try_from(self.tokens.len()).expect("distinct token count exceeds u32");
-        self.tokens.push(s);
-        self.ids.insert(s, id);
-        id
     }
 
     /// Returns the token text for a previously assigned ID.
