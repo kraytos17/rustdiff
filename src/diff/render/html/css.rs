@@ -16,9 +16,11 @@ pub(super) const THEME_STYLE: &str = concat!(
     " }\n"
 );
 
-pub(super) const BASE_CSS: &str = r"
+pub(super) const BASE_CSS: &str = r#"
 * { box-sizing: border-box; }
-body { background: var(--bg); color: var(--text); font-family: monospace;
+body { background: var(--bg); color: var(--text);
+       font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+                    "Liberation Mono", monospace;
        margin: 0; padding: 2rem; }
 h2 { font-size: 1.1rem; margin: 0 0 0.5rem; }
 pre { margin: 0; white-space: pre-wrap; overflow-wrap: break-word; }
@@ -56,7 +58,7 @@ thead th { text-align: center; color: var(--text); padding: 0.5rem;
 
 footer { text-align: center; color: var(--ln); font-size: 0.85rem;
          padding: 1rem; border-top: 1px solid var(--border); }
-";
+"#;
 
 /// Toolbar and its buttons (theme, navigation, wrap).
 pub(super) const TOOLBAR_CSS: &str = r"

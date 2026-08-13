@@ -1,4 +1,8 @@
+//! Core diff algorithms and shared helpers.
+
+/// Histogram (patience-style) anchor diff, the default algorithm.
 pub mod histogram;
+/// Linear-space Myers diff.
 pub mod myers;
 
 pub use histogram::compute_histogram_diff;

@@ -380,3 +380,66 @@ fn verify_flag_passes_on_identical_inputs() {
         .assert()
         .success();
 }
+
+#[test]
+fn ignore_blank_lines_makes_blank_only_diff_vanish() {
+    let dir = temp_dir("ignore_blank");
+    let old = dir.join("old.txt");
+    let new = dir.join("new.txt");
+    write(&old, "a\n\nb\n");
+    write(&new, "a\n\n\n\nb\n");
+    bin()
+        .args([
+            "--ignore-blank-lines",
+            "--exit-code",
+            "-o",
+            "-",
+            old.to_str().unwrap(),
+            new.to_str().unwrap(),
+        ])
+        .assert()
+        .code(0);
+}
+
+#[test]
+fn ignore_blank_lines_still_detects_real_changes() {
+    let dir = temp_dir("ignore_blank_real");
+    let old = dir.join("old.txt");
+    let new = dir.join("new.txt");
+    write(&old, "a\nb\n");
+    write(&new, "a\nCHANGED\n");
+    bin()
+        .args([
+            "--ignore-blank-lines",
+            "--exit-code",
+            "-o",
+            "-",
+            old.to_str().unwrap(),
+            new.to_str().unwrap(),
+        ])
+        .assert()
+        .code(1);
+}
+
+#[test]
+fn html_output_writes_to_explicit_path() {
+    let dir = temp_dir("html_output");
+    let (old, new) = old_new_pair(&dir);
+    let explicit = dir.join("custom.html");
+    bin()
+        .args([
+            old.to_str().unwrap(),
+            new.to_str().unwrap(),
+            "--html",
+            "--html-output",
+            explicit.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("custom.html"));
+    assert!(explicit.exists());
+    assert!(
+        !dir.join("changes.html").exists(),
+        "no derived html expected"
+    );
+}

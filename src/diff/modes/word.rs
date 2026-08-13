@@ -39,6 +39,9 @@ pub fn diff_words_with(
     ensure_within_u32(old_tokens.len(), "tokens")?;
     ensure_within_u32(new_tokens.len(), "tokens")?;
 
+    // `ignore_blank_lines` is line-mode only; in word mode it is ignored (line
+    // breaks are structural tokens there), so the post-process drop in line
+    // mode never applies.
     let old_keys = keys_for(&old_tokens, opts);
     let new_keys = keys_for(&new_tokens, opts);
     let old_refs: Vec<&str> = old_keys.iter().map(String::as_str).collect();
@@ -151,6 +154,7 @@ mod tests {
         let opts = DiffOptions {
             ignore_whitespace: true,
             ignore_case: false,
+            ignore_blank_lines: false,
         };
         let diff = diff_words_with(
             "hello  world\n",
@@ -170,6 +174,7 @@ mod tests {
         let opts = DiffOptions {
             ignore_whitespace: false,
             ignore_case: true,
+            ignore_blank_lines: false,
         };
         let diff = diff_words_with(
             "Hello World\n",

@@ -1,6 +1,6 @@
 [package]
 name = "rustdiff"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2024"
 rust-version = "1.97.0"
 
@@ -19,6 +19,7 @@ parallel = ["dep:rayon"]
 
 [dev-dependencies]
 assert_cmd = "2.2.2"
+clap_mangen = "0.2.20"
 criterion = "0.8.2"
 dhat = "0.3.3"
 predicates = "3.1.4"

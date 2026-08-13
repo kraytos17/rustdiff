@@ -123,10 +123,14 @@ fn parallel_halves(
 fn build_counts(a: &[u32]) -> RapidHashMap<u32, u32> {
     let mut counts = RapidHashMap::with_capacity(a.len().min(4096));
     for &id in a {
-        let c = counts.entry(id).or_insert(0);
-        if *c < MAX_OCCURRENCES + 1 {
-            *c += 1;
-        }
+        counts
+            .entry(id)
+            .and_modify(|c| {
+                if *c < MAX_OCCURRENCES + 1 {
+                    *c += 1;
+                }
+            })
+            .or_insert(1);
     }
     counts
 }

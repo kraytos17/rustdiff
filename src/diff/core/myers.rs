@@ -2,6 +2,8 @@ use super::{Snake, trim_common_ends};
 use crate::diff::data::{Op, coalesce, u32_len};
 use crate::diff::intern::intern_both;
 
+/// Compute a linear-space Myers diff over two `&str` token sequences, emitting
+/// run-length-encoded ops.
 #[must_use]
 pub fn compute_diff(a: &[&str], b: &[&str]) -> Vec<Op> {
     let (prefix_len, suffix_len, a_mid, b_mid) = trim_common_ends(a, b);

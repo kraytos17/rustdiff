@@ -40,6 +40,7 @@ fn run(opts: &Cli) -> Result<bool, String> {
     let diff_opts = DiffOptions {
         ignore_whitespace: opts.ignore_whitespace,
         ignore_case: opts.ignore_case,
+        ignore_blank_lines: opts.ignore_blank_lines,
     };
 
     let diff = if opts.word {
@@ -77,7 +78,10 @@ fn run(opts: &Cli) -> Result<bool, String> {
         .map_err(|e| format!("Error writing diff to {output_path}: {e}"))?;
 
     if opts.html {
-        let html_path = format!("{}.html", html_base(output_path));
+        let html_path = opts
+            .html_output
+            .as_ref()
+            .map_or_else(|| format!("{}.html", html_base(output_path)), Clone::clone);
         std::fs::write(&html_path, render_html(opts, &diff))
             .map_err(|e| format!("Error generating HTML diff: {e}"))?;
         println!("HTML diff exported to {html_path}");
@@ -186,6 +190,7 @@ mod tests {
             diff_algorithm: DiffAlgorithm::Histogram,
             html: false,
             html_theme: None,
+            html_output: None,
             side_by_side: false,
             unified: None,
             compact: false,
@@ -196,6 +201,7 @@ mod tests {
             no_mmap: true,
             ignore_whitespace: false,
             ignore_case: false,
+            ignore_blank_lines: false,
             verify: false,
         }
     }

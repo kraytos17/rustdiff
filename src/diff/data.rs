@@ -1,8 +1,12 @@
+/// The kind of edit an [`Op`] represents.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum OpKind {
+    /// Unchanged tokens present in both sequences.
     Equal,
+    /// Tokens added in the new sequence.
     Insert,
+    /// Tokens removed from the old sequence.
     Delete,
 }
 
@@ -10,12 +14,16 @@ pub enum OpKind {
 /// token array (`old_tokens` for Equal/Delete, `new_tokens` for Insert).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Op {
+    /// The kind of edit this run represents.
     pub kind: OpKind,
+    /// Start index into the relevant token array.
     pub start: u32,
+    /// Number of tokens in the run.
     pub len: u32,
 }
 
 impl Op {
+    /// An unchanged run.
     #[must_use]
     pub const fn equal(start: u32, len: u32) -> Self {
         Self {
@@ -25,6 +33,7 @@ impl Op {
         }
     }
 
+    /// An insertion run.
     #[must_use]
     pub const fn insert(start: u32, len: u32) -> Self {
         Self {
@@ -34,6 +43,7 @@ impl Op {
         }
     }
 
+    /// A deletion run.
     #[must_use]
     pub const fn delete(start: u32, len: u32) -> Self {
         Self {
@@ -49,8 +59,11 @@ impl Op {
 /// Renders resolve each run back to text lazily against `old_tokens`/`new_tokens`.
 #[derive(Debug, Clone)]
 pub struct Diff {
+    /// The run-length-encoded edit script.
     pub ops: Vec<Op>,
+    /// The original tokens of the old sequence.
     pub old_tokens: Vec<String>,
+    /// The original tokens of the new sequence.
     pub new_tokens: Vec<String>,
 }
 
@@ -130,19 +143,29 @@ impl Diff {
     }
 }
 
+/// A contiguous block of a diff bounded by context lines, for unified output.
 #[derive(Debug, Clone)]
 pub struct Hunk {
+    /// The re-encoded run-length ops inside this hunk.
     pub ops: Vec<Op>,
+    /// First old-sequence line number of the hunk.
     pub start_a: usize,
+    /// First new-sequence line number of the hunk.
     pub start_b: usize,
+    /// Number of old-sequence lines covered.
     pub len_a: usize,
+    /// Number of new-sequence lines covered.
     pub len_b: usize,
 }
 
+/// Insertion/deletion counts for a diff.
 #[derive(Debug, Default, Clone)]
 pub struct DiffStats {
+    /// Number of inserted tokens.
     pub inserts: usize,
+    /// Number of deleted tokens.
     pub deletes: usize,
+    /// Total changes (`inserts + deletes`).
     pub changes: usize,
 }
 
@@ -170,19 +193,19 @@ impl DiffStats {
 }
 
 /// Merge adjacent same-kind runs whose ranges are contiguous.
+///
+/// Uses [`Vec::dedup_by`], which is in-place. Note the closure receives
+/// `(examined, kept)` — the second argument is the previously kept run and is
+/// mutated to absorb the first.
 pub(crate) fn coalesce(ops: &mut Vec<Op>) {
-    let mut out: Vec<Op> = Vec::with_capacity(ops.len());
-    for op in ops.drain(..) {
-        if let Some(last) = out.last_mut()
-            && last.kind == op.kind
-            && last.start + last.len == op.start
-        {
-            last.len += op.len;
-            continue;
+    ops.dedup_by(|cur, kept| {
+        if kept.kind == cur.kind && kept.start + kept.len == cur.start {
+            kept.len += cur.len;
+            true
+        } else {
+            false
         }
-        out.push(op);
-    }
-    *ops = out;
+    });
 }
 
 /// Maximum number of tokens the `u32`-indexed core can address. Inputs above

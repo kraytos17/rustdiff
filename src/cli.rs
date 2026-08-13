@@ -76,6 +76,15 @@ pub struct Cli {
     #[arg(long, help = "Generate colorized HTML diff output")]
     pub html: bool,
 
+    /// Explicit HTML output path (default: derived from --output)
+    #[arg(
+        long,
+        value_name = "FILE",
+        value_hint = ValueHint::FilePath,
+        help = "Write the HTML diff here instead of deriving the path from --output"
+    )]
+    pub html_output: Option<String>,
+
     /// HTML color theme (default: follow the viewer's OS preference)
     #[arg(
         long,
@@ -168,6 +177,15 @@ pub struct Cli {
     )]
     pub ignore_case: bool,
 
+    /// Ignore blank-line changes (line mode)
+    #[arg(
+        short = 'B',
+        long = "ignore-blank-lines",
+        action = ArgAction::SetTrue,
+        help = "Treat all blank lines as identical, so blank-line changes are ignored (line mode)"
+    )]
+    pub ignore_blank_lines: bool,
+
     /// Verify the diff is reversible before writing output
     #[arg(
         long,
@@ -177,9 +195,13 @@ pub struct Cli {
     pub verify: bool,
 }
 
+/// When to use ANSI terminal colors.
 #[derive(Copy, Clone, Debug, ValueEnum)]
 pub enum ColorMode {
+    /// Color only when writing to a terminal.
     Auto,
+    /// Always emit color codes.
     Always,
+    /// Never emit color codes.
     Never,
 }

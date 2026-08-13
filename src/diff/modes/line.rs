@@ -1,5 +1,5 @@
 use crate::diff::core::{compute_histogram_diff, myers::compute_diff};
-use crate::diff::data::{Diff, ensure_within_u32};
+use crate::diff::data::{Diff, Op, OpKind, ensure_within_u32};
 use crate::diff::modes::{DiffAlgorithm, DiffOptions, keys_for};
 
 /// Compute a line-level diff.
@@ -34,16 +34,38 @@ pub fn diff_lines_with(
     let new_keys = keys_for(&new_lines, opts);
     let old_refs: Vec<&str> = old_keys.iter().map(String::as_str).collect();
     let new_refs: Vec<&str> = new_keys.iter().map(String::as_str).collect();
-    let diff_ops = match algorithm {
+    let mut diff_ops = match algorithm {
         DiffAlgorithm::Histogram => compute_histogram_diff(&old_refs, &new_refs),
         DiffAlgorithm::Myers => compute_diff(&old_refs, &new_refs),
     };
+    if opts.ignore_blank_lines {
+        drop_blank_only_runs(&mut diff_ops, &old_lines, &new_lines);
+    }
 
     Ok(Diff {
         ops: diff_ops,
         old_tokens: old_lines,
         new_tokens: new_lines,
     })
+}
+
+/// Remove insert/delete runs consisting solely of blank lines, so blank-line
+/// changes are invisible (like `diff -B`). Equal runs are never touched.
+fn drop_blank_only_runs(ops: &mut Vec<Op>, old_tokens: &[String], new_tokens: &[String]) {
+    ops.retain(|op| {
+        if op.kind == OpKind::Equal {
+            return true;
+        }
+        let tokens = match op.kind {
+            OpKind::Insert => new_tokens,
+            _ => old_tokens,
+        };
+        let start = op.start as usize;
+        let all_blank = tokens[start..start + op.len as usize]
+            .iter()
+            .all(|t| t.trim().is_empty());
+        !all_blank
+    });
 }
 
 /// Split on `\n` via [`str::lines`] semantics: a trailing `\r` is trimmed from
@@ -63,6 +85,7 @@ mod tests {
         DiffOptions {
             ignore_whitespace,
             ignore_case,
+            ignore_blank_lines: false,
         }
     }
 
@@ -147,5 +170,37 @@ mod tests {
         .unwrap();
         assert_eq!(diff.old_tokens, vec!["HELLO  WORLD".to_string()]);
         assert_eq!(diff.new_tokens, vec!["hello world".to_string()]);
+    }
+
+    #[test]
+    fn test_ignore_blank_lines_makes_blank_diffs_invisible() {
+        let opts = DiffOptions {
+            ignore_whitespace: false,
+            ignore_case: false,
+            ignore_blank_lines: true,
+        };
+
+        let diff =
+            diff_lines_with("a\n\nb\n", "a\n\n\nb\n", DiffAlgorithm::Histogram, opts).unwrap();
+        assert!(
+            diff.ops.iter().all(|op| op.kind == OpKind::Equal),
+            "blank-line-only change must be invisible: {diff:?}"
+        );
+    }
+
+    #[test]
+    fn test_ignore_blank_lines_keeps_real_changes() {
+        let opts = DiffOptions {
+            ignore_whitespace: false,
+            ignore_case: false,
+            ignore_blank_lines: true,
+        };
+
+        let diff =
+            diff_lines_with("a\nb\n", "a\nCHANGED\n", DiffAlgorithm::Histogram, opts).unwrap();
+        assert!(
+            diff.ops.iter().any(|op| op.kind == OpKind::Delete),
+            "real change must survive"
+        );
     }
 }

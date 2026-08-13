@@ -1,6 +1,12 @@
+//! Text and HTML renderers for computed diffs.
+
+/// HTML renderers: self-contained pages with view-time JavaScript.
 pub mod html;
+/// Simple line renderer with `-`/`+` markers.
 pub mod line;
+/// Git-style unified renderer with hunks and context lines.
 pub mod unified;
+/// Inline word renderer with `[-old+new]` replacement markers.
 pub mod word;
 
 pub use html::{

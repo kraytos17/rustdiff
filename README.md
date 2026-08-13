@@ -1,8 +1,8 @@
 # rustdiff
 
-A command-line text diff tool written in Rust for Linux. Compares two text
-files and renders the differences as plain line diffs, unified diffs with
-configurable context, word-level inline diffs, or HTML.
+A command-line text diff tool written in Rust. Compares two text files and
+renders the differences as plain line diffs, unified diffs with configurable
+context, word-level inline diffs, or interactive HTML.
 
 ```
 rustdiff <OLD> <NEW> [OPTIONS]
@@ -16,13 +16,16 @@ rustdiff <OLD> <NEW> [OPTIONS]
 - Compact output (changes only, no context)
 - Summary output (insertion/deletion counts)
 - ANSI colors with `auto`, `always`, and `never` modes
-- HTML export: unified, side-by-side, and word-inline layouts, dark or light theme
+- Interactive HTML export: unified, side-by-side, and word-inline layouts
+- POSIX-style exit codes for scripting/CI (`--exit-code`)
+- `--ignore-whitespace` / `--ignore-case` / `--ignore-blank-lines` filters
+- Read either input from stdin (`-`)
 - Output to a file or stdout
 - Optional parallel diffing (`--features parallel`) — off by default, see below
 
 ## Install
 
-Requires Rust 1.97 or newer.
+Requires Rust 1.97 or newer (the crate's MSRV; enforced in CI).
 
 Build from source:
 
@@ -44,6 +47,8 @@ rustdiff <OLD> <NEW> [OPTIONS]
 ```
 
 The two positional arguments are paths to the original and modified files.
+Pass `-` for either to read that side from stdin (at most one side may be
+`-`).
 
 ### Options
 
@@ -57,9 +62,31 @@ The two positional arguments are paths to the original and modified files.
 | `--line` | Line-level diff (default) |
 | `--diff-algorithm <algo>` | `histogram` (default) or `myers` |
 | `--color <mode>` | `auto`, `always`, or `never` (default: `auto`) |
-| `--html` | Write a unified HTML diff to `<output>.html` |
+| `--exit-code` | Exit `0` if no differences, `1` if differences found, `2` on error |
+| `-w, --ignore-whitespace` | Ignore whitespace within tokens (line and word mode) |
+| `-i, --ignore-case` | Ignore case when comparing tokens |
+| `-B, --ignore-blank-lines` | Ignore changes that are only blank lines (line mode) |
+| `--no-mmap` | Read files into memory instead of memory-mapping large files |
+| `--verify` | Verify the computed diff is reversible before writing output |
+| `--html` | Write an HTML diff (layout chosen below) |
+| `--html-theme <theme>` | `dark` or `light`; default follows the viewer's OS preference |
+| `--html-output <FILE>` | Write the HTML here instead of deriving it from `--output` |
 | `--side-by-side` | Side-by-side HTML layout instead of unified (requires `--html`) |
-| `--html-theme <theme>` | HTML color theme: `dark` (default) or `light` |
+
+### Exit codes
+
+By default `rustdiff` exits `0` on success and `2` on error. With `--exit-code`
+it behaves like POSIX `diff`:
+
+- `0` — no differences
+- `1` — differences found
+- `2` — error (missing file, unreadable input, too large, etc.)
+
+This makes the tool directly usable in CI scripts:
+
+```sh
+rustdiff committed/generated.rs generated.rs --exit-code -o - || exit 1
+```
 
 ### Color behavior
 
@@ -98,21 +125,51 @@ rustdiff old.txt new.txt --word -o -
 # Force the Myers algorithm instead of histogram
 rustdiff old.txt new.txt --diff-algorithm myers
 
+# Ignore whitespace, case, and blank-line-only changes (exit 0)
+rustdiff old.txt new.txt --ignore-whitespace --ignore-case --ignore-blank-lines --exit-code
+
+# Diff against stdin
+rustdiff old.txt - --summary < generated.txt
+
+# Fail a build if generated code changed
+rustdiff build/gen.rs expected.rs --exit-code -o - || exit 1
+
+# Verify the diff is reversible before writing it
+rustdiff old.txt new.txt --verify
+
 # Write a unified HTML diff
 rustdiff old.txt new.txt -o my.diff --html
 
-# Side-by-side HTML with a light theme
+# Side-by-side HTML with a baked light theme
 rustdiff old.txt new.txt -o my.diff --html --side-by-side --html-theme light
 
 # Word-level HTML with inline highlighting
 rustdiff old.txt new.txt --word -o my.diff --html
+
+# Write the HTML to an explicit path (no .diff file needed)
+rustdiff old.txt new.txt --html --html-output report.html
 ```
 
-With `--html`, `rustdiff` writes `<output>.html` next to the chosen output.
-`--html` uses a unified layout (respecting `-u N`, default 3 context lines),
-`--side-by-side` switches to a two-column layout, and `--word` produces
-inline word highlighting. Colors are always applied in the HTML — no
-`--color` flag is needed.
+With `--html`, `rustdiff` writes `<output>.html` next to the chosen output
+unless `--html-output` overrides the path. `--html` uses a unified layout
+(respecting `-u N`, default 3 context lines), `--side-by-side` switches to a
+two-column layout, and `--word` produces inline word highlighting. Colors are
+always applied in the HTML — no `--color` flag is needed.
+
+### Interactive HTML
+
+Generated HTML pages are self-contained (no network or build step) and include
+a small amount of view-time JavaScript:
+
+- **Jump to next/previous change** — the `Prev`/`Next` toolbar buttons, or the
+  `n`/`j` (next) and `p`/`k` (previous) keys.
+- **Collapsible unchanged regions** — long runs of unchanged lines in the
+  numbered and side-by-side views collapse behind a "Show N unchanged lines"
+  toggle; printing always reveals them.
+- **Line-wrap toggle** — switch between wrapping and horizontal scroll, with
+  the choice remembered in `localStorage`.
+- **Theme toggle** — switch dark/light at view time, remembered per-browser;
+  the default (no `--html-theme`) follows the viewer's `prefers-color-scheme`.
 
 ## Output formats
 
@@ -130,7 +187,7 @@ Unified diff:
 --- old.txt
 +++ new.txt
 @@ -10,2 +10,3 @@
- context
+  context
 -removed line
 +added line
 +new line
@@ -171,33 +228,51 @@ inputs the scheduling overhead outweighs the gain, and only large regions
 
 ## Library use
 
-The diff core is also exposed as a library (`rustdiff::diff`):
+The diff engine is also exposed as a library (`rustdiff::diff`). Both the
+library and binary are covered by `#![deny(missing_docs)]`; run
+`cargo doc --open` for the full API reference.
 
 ```rs
-use rustdiff::diff::modes::{diff_lines, DiffAlgorithm};
-use rustdiff::diff::render::render_unified_diff;
 use rustdiff::diff::data::DiffStats;
+use rustdiff::diff::modes::{DiffAlgorithm, DiffOptions, diff_lines, diff_lines_with};
+use rustdiff::diff::render::render_unified_diff;
 
-let diff = diff_lines("a\nb\n", "a\nX\n", DiffAlgorithm::Histogram);
+let diff = diff_lines("a\nb\n", "a\nX\n", DiffAlgorithm::Histogram).unwrap();
 let text = render_unified_diff("old", "new", &diff, 3, true);
 let stats = DiffStats::from_ops(&diff.ops);
+
+// Normalization options are also available:
+let opts = DiffOptions { ignore_case: true, ..DiffOptions::default() };
+let diff = diff_lines_with("a\nB\n", "A\nb\n", DiffAlgorithm::Myers, opts)?;
 ```
 
 Key types and functions:
 
-- `diff::modes::diff_lines`, `diff::modes::diff_words`
-- `diff::core::histogram::compute_histogram_diff`
-- `diff::core::myers::compute_diff`
-- `diff::render::render_line_diff`, `render_unified_diff`, `render_word_diff`
-- `diff::render::html::render_unified_html`, `render_side_by_side_html`,
-  `render_word_html`, `render_numbered_html`
-- `diff::data::Diff`, `Op`, `Hunk`, `DiffStats`
+- `diff::modes::{diff_lines, diff_words, diff_lines_with, diff_words_with}`,
+  `DiffAlgorithm`, `DiffOptions`
+- `diff::core::histogram::compute_histogram_diff`, `diff::core::myers::compute_diff`
+- `diff::data::{Diff, Op, OpKind, Hunk, DiffStats}`, `Diff::validate_round_trip`
+- `diff::intern::Interner`
+- `diff::render::{render_line_diff, render_unified_diff, render_word_diff}`
+- `diff::render::html::{render_unified_html, render_side_by_side_html,
+  render_word_html, render_numbered_html}`, `HtmlTheme`
+- `fsio::{Source, read_file}`
 
 ## Compatibility notes
 
 - `--side-by-side` requires `--html` and conflicts with `--word`.
 - With `--word` plus `--unified` or `--compact`, each word token is rendered
   on its own line rather than inline.
+- `--ignore-blank-lines` applies to line mode only; in word mode it is ignored
+  because line breaks are structural tokens there.
+
+## Man page
+
+A `rustdiff(1)` man page is generated from the CLI definition:
+
+```sh
+cargo run --example gen-man > rustdiff.1
+```
 
 ## Development
 
@@ -205,10 +280,14 @@ Key types and functions:
 cargo fmt --all -- --check              # format
 cargo clippy -- -D warnings -W clippy::pedantic -W clippy::nursery   # lint
 cargo test --all-targets                # test
+cargo test --all-features               # test with the parallel feature
+RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps   # docs (denies missing_docs)
 ```
 
-Build warnings are denied via `.cargo/config.toml`. CI runs the same format,
-lint, and test checks on every push and builds a release binary on tags. See
+Build warnings are denied via `.cargo/config.toml`. CI (`cargo fmt`, clippy,
+tests, and docs on stable; a feature matrix covering `--no-default-features`
+and `--all-features`; an MSRV check at 1.97; and `cargo-audit`) runs on every
+push and builds a release binary on tags. See
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 To build with the optional parallel diffing feature:
@@ -228,12 +307,15 @@ cargo test --test memory -- --test-threads=1
 
 ### Fuzzing
 
-A `cargo-fuzz` target (`fuzz/`) round-trips arbitrary byte inputs through both
-diff engines. Requires nightly (not part of stable CI):
+Two `cargo-fuzz` targets under `fuzz/` exercise the engine end to end.
+`diff_round_trip` runs arbitrary byte inputs through both diff cores and
+checks round-trip validity; `render_round_trip` pushes the same inputs through
+every text and HTML renderer. Requires nightly (not part of stable CI):
 
 ```sh
 cargo install cargo-fuzz
 cargo +nightly fuzz run diff_round_trip
+cargo +nightly fuzz run render_round_trip
 ```
 
 ## License

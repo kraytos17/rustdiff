@@ -1,4 +1,8 @@
+//! Diff tokenization modes and options.
+
+/// Line-mode tokenizer and `diff_lines` entry points.
 pub mod line;
+/// Word-mode tokenizer and `diff_words` entry points.
 pub mod word;
 
 pub use line::{diff_lines, diff_lines_with};
@@ -10,9 +14,13 @@ mod proptests;
 use clap::ValueEnum;
 use std::borrow::Cow;
 
+/// Which core algorithm to run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum DiffAlgorithm {
+    /// Histogram anchoring (default): fastest on typical code, falls back to
+    /// Myers for pathological inputs.
     Histogram,
+    /// Linear-space Myers: minimal edit script, guaranteed.
     Myers,
 }
 
@@ -28,6 +36,9 @@ pub struct DiffOptions {
     pub ignore_whitespace: bool,
     /// Ignore case when comparing tokens.
     pub ignore_case: bool,
+    /// Treat all blank lines as identical (line mode only; word mode disables
+    /// this because line breaks are structural there).
+    pub ignore_blank_lines: bool,
 }
 
 impl DiffOptions {
@@ -53,7 +64,7 @@ pub(crate) fn keys_for(tokens: &[String], opts: DiffOptions) -> Cow<'_, [String]
 
 fn normalize_token(token: &str, opts: DiffOptions) -> String {
     if opts.ignore_whitespace {
-        let stripped: String = token.chars().filter(|c| !c.is_whitespace()).collect();
+        let stripped: String = token.split_whitespace().collect();
         if opts.ignore_case {
             stripped.to_lowercase()
         } else {
@@ -80,6 +91,7 @@ mod tests {
         let opts = DiffOptions {
             ignore_whitespace: true,
             ignore_case: false,
+            ignore_blank_lines: false,
         };
         assert_eq!(normalize_token("a \t b", opts), "ab");
         assert_eq!(normalize_token("  ", opts), "");
@@ -90,6 +102,7 @@ mod tests {
         let opts = DiffOptions {
             ignore_whitespace: false,
             ignore_case: true,
+            ignore_blank_lines: false,
         };
         assert_eq!(normalize_token("Hello", opts), "hello");
     }
@@ -99,6 +112,7 @@ mod tests {
         let opts = DiffOptions {
             ignore_whitespace: true,
             ignore_case: true,
+            ignore_blank_lines: false,
         };
         assert_eq!(normalize_token(" HeLLo ", opts), "hello");
     }
@@ -121,6 +135,7 @@ mod tests {
             DiffOptions {
                 ignore_whitespace: true,
                 ignore_case: true,
+                ignore_blank_lines: false,
             },
         );
 

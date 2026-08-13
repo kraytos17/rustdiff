@@ -12,6 +12,7 @@ pub struct Interner<'a> {
 }
 
 impl<'a> Interner<'a> {
+    /// Create an interner pre-allocated for about `cap` distinct tokens.
     #[must_use]
     pub fn with_capacity(cap: usize) -> Self {
         Self {
@@ -44,11 +45,13 @@ impl<'a> Interner<'a> {
         self.tokens[id as usize]
     }
 
+    /// Number of distinct tokens interned so far.
     #[must_use]
     pub const fn len(&self) -> usize {
         self.tokens.len()
     }
 
+    /// Whether no tokens have been interned.
     #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.tokens.is_empty()

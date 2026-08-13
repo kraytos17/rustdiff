@@ -1,4 +1,4 @@
-use memmap2::Mmap;
+use memmap2::{Advice, Mmap};
 use std::fs::File;
 use std::io::{self, Read};
 
@@ -7,7 +7,9 @@ use std::io::{self, Read};
 /// Large files are mapped rather than copied into a `String` to avoid a
 /// whole-file read + copy; small files are read normally.
 pub enum Source {
+    /// File contents read fully into an owned string.
     Small(String),
+    /// A read-only memory-mapped region of the file.
     Mapped(Mmap),
 }
 
@@ -42,6 +44,9 @@ pub fn read_file(path: &str, use_mmap: bool) -> io::Result<Source> {
         // any mmap, a concurrent external writer could fault the process (SIGBUS),
         // which is the standard tradeoff for a one-shot CLI tool.
         let mmap = unsafe { Mmap::map(&file)? };
+        // Sequential-read hint: diffing reads the file in order, so tell the
+        // kernel to prefetch ahead rather than worry about random access.
+        mmap.advise(Advice::Sequential)?;
         Ok(Source::Mapped(mmap))
     } else {
         let mut contents = String::new();

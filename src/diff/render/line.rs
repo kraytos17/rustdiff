@@ -5,6 +5,8 @@ const RED: &str = "\x1B[31m";
 const GREEN: &str = "\x1B[32m";
 const RESET: &str = "\x1B[0m";
 
+/// Render a simple line diff: context lines prefixed with two spaces, inserts
+/// with `+ `, deletes with `- `, optionally ANSI-colored.
 #[must_use]
 pub fn render_line_diff(diff: &Diff, color: bool) -> String {
     let mut output = String::new();

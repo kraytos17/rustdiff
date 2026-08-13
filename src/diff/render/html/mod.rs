@@ -16,7 +16,9 @@ use std::fmt::Write as _;
 /// HTML color theme for generated diff pages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum HtmlTheme {
+    /// Dark theme (GitHub-dark style).
     Dark,
+    /// Light theme (GitHub-light style).
     Light,
 }
 
@@ -87,7 +89,7 @@ pub fn render_unified_html(
                     OpKind::Delete => {
                         writeln!(
                             body,
-                            "<tr class=\"del\"><td class=\"ln\">{old_ln}</td><td class=\"ln empty\"></td><td class=\"txt\"><pre>{}</pre></td></tr>",
+                            "<tr class=\"del\" aria-label=\"deleted line\"><td class=\"ln\">{old_ln}</td><td class=\"ln empty\"></td><td class=\"txt\"><pre>{}</pre></td></tr>",
                             esc(line)
                         )
                         .unwrap();
@@ -96,7 +98,7 @@ pub fn render_unified_html(
                     OpKind::Insert => {
                         writeln!(
                             body,
-                            "<tr class=\"add\"><td class=\"ln empty\"></td><td class=\"ln\">{new_ln}</td><td class=\"txt\"><pre>{}</pre></td></tr>",
+                            "<tr class=\"add\" aria-label=\"added line\"><td class=\"ln empty\"></td><td class=\"ln\">{new_ln}</td><td class=\"txt\"><pre>{}</pre></td></tr>",
                             esc(line)
                         )
                         .unwrap();
@@ -117,6 +119,7 @@ pub fn render_unified_html(
 pub fn render_numbered_html(diff: &Diff, theme: ThemeOption) -> String {
     let mut body = String::new();
     body.push_str("<table>\n");
+
     let mut ln = 0usize;
     for op in &diff.ops {
         let tokens = diff.tokens_for(op.kind);
@@ -126,6 +129,7 @@ pub fn render_numbered_html(diff: &Diff, theme: ThemeOption) -> String {
         if collapsible {
             body.push_str(&gap_row(len));
         }
+
         let base_class = match op.kind {
             OpKind::Equal => "ctx",
             OpKind::Delete => "del",
@@ -136,11 +140,17 @@ pub fn render_numbered_html(diff: &Diff, theme: ThemeOption) -> String {
         } else {
             base_class
         };
+
+        let aria = match op.kind {
+            OpKind::Delete => " aria-label=\"deleted line\"",
+            OpKind::Insert => " aria-label=\"added line\"",
+            OpKind::Equal => "",
+        };
         for text in &tokens[start..start + len] {
             ln += 1;
             writeln!(
                 body,
-                "<tr class=\"{class}\"><td class=\"ln\">{ln}</td><td class=\"txt\"><pre>{}</pre></td></tr>",
+                "<tr class=\"{class}\"{aria}><td class=\"ln\">{ln}</td><td class=\"txt\"><pre>{}</pre></td></tr>",
                 esc(text)
             )
             .unwrap();
@@ -232,12 +242,12 @@ pub fn render_side_by_side_html(
                     }
 
                     let left_cell = left.map_or_else(
-                        || "<td class=\"cell del\"></td>".to_string(),
-                        |h| format!("<td class=\"cell del\">{h}</td>"),
+                        || "<td class=\"cell del\" aria-label=\"deleted line\"></td>".to_string(),
+                        |h| format!("<td class=\"cell del\" aria-label=\"deleted line\">{h}</td>"),
                     );
                     let right_cell = right.map_or_else(
-                        || "<td class=\"cell add\"></td>".to_string(),
-                        |h| format!("<td class=\"cell add\">{h}</td>"),
+                        || "<td class=\"cell add\" aria-label=\"added line\"></td>".to_string(),
+                        |h| format!("<td class=\"cell add\" aria-label=\"added line\">{h}</td>"),
                     );
                     writeln!(body, "<tr class=\"chg\">{left_cell}{right_cell}</tr>").unwrap();
                 }
@@ -248,7 +258,7 @@ pub fn render_side_by_side_html(
                 for line in &diff.old_tokens[start..start + op.len as usize] {
                     writeln!(
                         body,
-                        "<tr class=\"chg\"><td class=\"cell del\"><span class=\"ln\">{old_ln}</span><pre>{}</pre></td><td class=\"cell\"></td></tr>",
+                        "<tr class=\"chg\"><td class=\"cell del\" aria-label=\"deleted line\"><span class=\"ln\">{old_ln}</span><pre>{}</pre></td><td class=\"cell\"></td></tr>",
                         esc(line)
                     )
                     .unwrap();
@@ -261,7 +271,7 @@ pub fn render_side_by_side_html(
                 for line in &diff.new_tokens[start..start + op.len as usize] {
                     writeln!(
                         body,
-                        "<tr class=\"chg\"><td class=\"cell\"></td><td class=\"cell add\"><span class=\"ln\">{new_ln}</span><pre>{}</pre></td></tr>",
+                        "<tr class=\"chg\"><td class=\"cell\"></td><td class=\"cell add\" aria-label=\"added line\"><span class=\"ln\">{new_ln}</span><pre>{}</pre></td></tr>",
                         esc(line)
                     )
                     .unwrap();
@@ -399,8 +409,8 @@ mod tests {
 
         let html = render_side_by_side_html(&d, "o", "n", Some(HtmlTheme::Dark));
         // Paired row: both cells present, delete + add.
-        assert!(html.contains("<td class=\"cell del\">"));
-        assert!(html.contains("<td class=\"cell add\">"));
+        assert!(html.contains("class=\"cell del\" aria-label"));
+        assert!(html.contains("class=\"cell add\" aria-label"));
         // Content without -/+ markers.
         assert!(html.contains(">b</pre>"));
         assert!(html.contains(">X</pre>"));
@@ -411,7 +421,7 @@ mod tests {
     fn test_side_by_side_delete_only() {
         let d = diff(vec![Op::delete(0, 1)], &["b"], &[]);
         let html = render_side_by_side_html(&d, "o", "n", Some(HtmlTheme::Dark));
-        assert!(html.contains("<td class=\"cell del\">"));
+        assert!(html.contains("class=\"cell del\" aria-label"));
         assert!(
             html.contains("<td class=\"cell\"></td>"),
             "empty right cell"
@@ -423,7 +433,7 @@ mod tests {
         let d = diff(vec![Op::insert(0, 1)], &[], &["X"]);
         let html = render_side_by_side_html(&d, "o", "n", Some(HtmlTheme::Dark));
         assert!(html.contains("<td class=\"cell\"></td>"), "empty left cell");
-        assert!(html.contains("<td class=\"cell add\">"));
+        assert!(html.contains("class=\"cell add\" aria-label"));
     }
 
     #[test]
@@ -437,9 +447,12 @@ mod tests {
         );
 
         let html = render_side_by_side_html(&d, "o", "n", Some(HtmlTheme::Dark));
-        assert_eq!(html.matches("<td class=\"cell del\">").count(), 2);
-        assert_eq!(html.matches("<td class=\"cell add\">").count(), 2);
-        assert!(html.contains("<td class=\"cell add\"></td>"), "padded cell");
+        assert_eq!(html.matches("class=\"cell del\" aria-label").count(), 2);
+        assert_eq!(html.matches("class=\"cell add\" aria-label").count(), 2);
+        assert!(
+            html.contains("class=\"cell add\" aria-label=\"added line\"></td>"),
+            "padded cell"
+        );
     }
 
     #[test]
@@ -652,6 +665,38 @@ mod tests {
         assert!(
             html.contains("&lt;/script&gt;"),
             "filename must be escaped in the title/headers"
+        );
+    }
+
+    #[test]
+    fn test_accessibility_aria_labels() {
+        let d = diff(vec![Op::delete(0, 1), Op::insert(0, 1)], &["old"], &["new"]);
+        let unified = render_unified_html(&d, 3, "o", "n", Some(HtmlTheme::Dark));
+        assert!(
+            unified.contains("aria-label=\"deleted line\""),
+            "unified delete row lacks aria-label"
+        );
+        assert!(
+            unified.contains("aria-label=\"added line\""),
+            "unified add row lacks aria-label"
+        );
+
+        let side = render_side_by_side_html(&d, "o", "n", Some(HtmlTheme::Dark));
+        assert!(side.contains("aria-label=\"deleted line\""));
+        assert!(side.contains("aria-label=\"added line\""));
+
+        let numbered = render_numbered_html(&d, Some(HtmlTheme::Dark));
+        assert!(numbered.contains("aria-label=\"deleted line\""));
+        assert!(numbered.contains("aria-label=\"added line\""));
+    }
+
+    #[test]
+    fn test_monospace_font_stack() {
+        let d = diff(vec![], &[], &[]);
+        let html = render_unified_html(&d, 3, "o", "n", Some(HtmlTheme::Dark));
+        assert!(
+            html.contains("ui-monospace, SFMono-Regular"),
+            "proper monospace font stack missing"
         );
     }
 }
