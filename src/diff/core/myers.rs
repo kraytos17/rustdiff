@@ -6,6 +6,16 @@ use crate::diff::intern::intern_both;
 /// run-length-encoded ops.
 #[must_use]
 pub fn compute_diff(a: &[&str], b: &[&str]) -> Vec<Op> {
+    compute_diff_limited(a, b, None)
+}
+
+/// Like [`compute_diff`], but caps the Myers search's edit distance.
+///
+/// When a region's edit distance would exceed `max_edit`, that region degrades
+/// to a full delete + insert (still a valid edit script, just not minimal).
+/// `None` disables the cap.
+#[must_use]
+pub fn compute_diff_limited(a: &[&str], b: &[&str], max_edit: Option<u32>) -> Vec<Op> {
     let (prefix_len, suffix_len, a_mid, b_mid) = trim_common_ends(a, b);
     if a_mid.is_empty() && b_mid.is_empty() {
         return if a.is_empty() {
@@ -30,7 +40,13 @@ pub fn compute_diff(a: &[&str], b: &[&str]) -> Vec<Op> {
         }
     } else {
         let (_interner, a_ids, b_ids) = intern_both(a_mid, b_mid);
-        diff_u32(&a_ids, &b_ids, u32_len(prefix_len), u32_len(prefix_len))
+        diff_u32(
+            &a_ids,
+            &b_ids,
+            u32_len(prefix_len),
+            u32_len(prefix_len),
+            max_edit,
+        )
     };
 
     let mut result = Vec::with_capacity(3);
@@ -52,16 +68,28 @@ pub fn compute_diff(a: &[&str], b: &[&str]) -> Vec<Op> {
 /// Linear-space Myers diff over interned token IDs, emitting run-length ops.
 ///
 /// `base_a`/`base_b` are the positions of `a[0]`/`b[0]` within the caller's
-/// full token arrays, so emitted `Op`s carry absolute indices.
+/// full token arrays, so emitted `Op`s carry absolute indices. `max_edit`
+/// caps the edit distance per region (see [`compute_diff_limited`]).
 #[must_use]
-pub(crate) fn diff_u32(a: &[u32], b: &[u32], base_a: u32, base_b: u32) -> Vec<Op> {
+pub(crate) fn diff_u32(
+    a: &[u32],
+    b: &[u32],
+    base_a: u32,
+    base_b: u32,
+    max_edit: Option<u32>,
+) -> Vec<Op> {
     let mut vf = vec![-1isize; 2 * (a.len() + b.len()) + 3];
     let mut vb = vec![-1isize; 2 * (a.len() + b.len()) + 3];
     let mut out = Vec::new();
-    diff_recursive(a, b, base_a, base_b, &mut vf, &mut vb, &mut out);
+    diff_recursive(a, b, base_a, base_b, &mut vf, &mut vb, &mut out, max_edit);
     out
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    clippy::too_many_lines,
+    reason = "a/b/base_a/base_b are the region being diffed; vf/vb/out/max_edit are the shared search state; the function mirrors Myers' recursive structure"
+)]
 fn diff_recursive(
     a: &[u32],
     b: &[u32],
@@ -70,6 +98,7 @@ fn diff_recursive(
     vf: &mut [isize],
     vb: &mut [isize],
     out: &mut Vec<Op>,
+    max_edit: Option<u32>,
 ) {
     if a.is_empty() {
         if !b.is_empty() {
@@ -93,6 +122,7 @@ fn diff_recursive(
             vf,
             vb,
             out,
+            max_edit,
         );
         return;
     }
@@ -107,25 +137,59 @@ fn diff_recursive(
             vf,
             vb,
             out,
+            max_edit,
         );
         out.push(Op::equal(base_a + u32_len(a.len() - trail), u32_len(trail)));
         return;
     }
 
-    let snake = find_middle_snake(a, b, vf, vb);
+    let Some(snake) = find_middle_snake(a, b, vf, vb, max_edit) else {
+        // The region is too expensive to diff exactly: degrade gracefully to a
+        // full delete + insert (still a valid edit script).
+        out.push(Op::delete(base_a, u32_len(a.len())));
+        out.push(Op::insert(base_b, u32_len(b.len())));
+        return;
+    };
     if snake.x == snake.u && snake.y == snake.v {
         let n = a.len();
         let m = b.len();
         if snake.x == 0 && snake.y == 0 {
             out.push(Op::delete(base_a, 1));
             out.push(Op::insert(base_b, 1));
-            diff_recursive(&a[1..], &b[1..], base_a + 1, base_b + 1, vf, vb, out);
+            diff_recursive(
+                &a[1..],
+                &b[1..],
+                base_a + 1,
+                base_b + 1,
+                vf,
+                vb,
+                out,
+                max_edit,
+            );
         } else if snake.x == n && snake.y == m {
-            diff_recursive(&a[..n - 1], &b[..m - 1], base_a, base_b, vf, vb, out);
+            diff_recursive(
+                &a[..n - 1],
+                &b[..m - 1],
+                base_a,
+                base_b,
+                vf,
+                vb,
+                out,
+                max_edit,
+            );
             out.push(Op::delete(base_a + u32_len(n - 1), 1));
             out.push(Op::insert(base_b + u32_len(m - 1), 1));
         } else {
-            diff_recursive(&a[..snake.x], &b[..snake.y], base_a, base_b, vf, vb, out);
+            diff_recursive(
+                &a[..snake.x],
+                &b[..snake.y],
+                base_a,
+                base_b,
+                vf,
+                vb,
+                out,
+                max_edit,
+            );
             diff_recursive(
                 &a[snake.x..],
                 &b[snake.y..],
@@ -134,12 +198,22 @@ fn diff_recursive(
                 vf,
                 vb,
                 out,
+                max_edit,
             );
         }
         return;
     }
 
-    diff_recursive(&a[..snake.x], &b[..snake.y], base_a, base_b, vf, vb, out);
+    diff_recursive(
+        &a[..snake.x],
+        &b[..snake.y],
+        base_a,
+        base_b,
+        vf,
+        vb,
+        out,
+        max_edit,
+    );
     out.push(Op::equal(base_a + u32_len(snake.x), u32_len(snake.len())));
     diff_recursive(
         &a[snake.u..],
@@ -149,6 +223,7 @@ fn diff_recursive(
         vf,
         vb,
         out,
+        max_edit,
     );
 }
 
@@ -160,7 +235,13 @@ fn diff_recursive(
     clippy::suspicious_operation_groupings,
     reason = "x/y/k/d/sx/sy and the vf[ki - 1] < vf[ki + 1] diagonals follow Myers' paper notation"
 )]
-fn find_middle_snake(a: &[u32], b: &[u32], vf: &mut [isize], vb: &mut [isize]) -> Snake {
+fn find_middle_snake(
+    a: &[u32],
+    b: &[u32],
+    vf: &mut [isize],
+    vb: &mut [isize],
+    max_edit: Option<u32>,
+) -> Option<Snake> {
     let n = a.len().cast_signed();
     let m = b.len().cast_signed();
     let max = (n + m).cast_unsigned();
@@ -171,6 +252,10 @@ fn find_middle_snake(a: &[u32], b: &[u32], vf: &mut [isize], vb: &mut [isize]) -
     vf[off + 1] = 0;
     vb[off + 1] = 0;
     for d in 0..=max.div_ceil(2) {
+        if max_edit.is_some_and(|limit| d * 2 > limit as usize) {
+            return None;
+        }
+
         let di = d.cast_signed();
         // Forward frontier (original coordinates).
         for k in (-di..=di).step_by(2) {
@@ -192,12 +277,12 @@ fn find_middle_snake(a: &[u32], b: &[u32], vf: &mut [isize], vb: &mut [isize]) -
             if odd && k >= delta - (di - 1) && k <= delta + (di - 1) {
                 let vb_idx = (off.cast_signed() + delta - k).cast_unsigned();
                 if vf[ki] + vb[vb_idx] >= n {
-                    return Snake {
+                    return Some(Snake {
                         x: x.cast_unsigned(),
                         y: (x - k).cast_unsigned(),
                         u: sx.cast_unsigned(),
                         v: sy.cast_unsigned(),
-                    };
+                    });
                 }
             }
         }
@@ -226,18 +311,18 @@ fn find_middle_snake(a: &[u32], b: &[u32], vf: &mut [isize], vb: &mut [isize]) -
             if !odd && fk >= -di && fk <= di {
                 let vf_idx = (off.cast_signed() + fk).cast_unsigned();
                 if vf[vf_idx] + vb[ki] >= n {
-                    return Snake {
+                    return Some(Snake {
                         x: (n - sx).cast_unsigned(),
                         y: (m - (sx - k)).cast_unsigned(),
                         u: (n - x).cast_unsigned(),
                         v: (m - (x - k)).cast_unsigned(),
-                    };
+                    });
                 }
             }
         }
     }
 
-    unreachable!("middle snake search failed");
+    None
 }
 
 fn common_prefix_len(a: &[u32], b: &[u32]) -> usize {
@@ -545,6 +630,49 @@ mod tests {
         assert_eq!(sum_eq(&ops), lcs_len(&a, &b));
     }
 
+    #[test]
+    fn test_limited_bails_on_expensive_region() {
+        let a = s(&["a", "b", "c"]);
+        let b = s(&["x", "y", "z"]);
+        let ops = compute_diff_limited(&a, &b, Some(0));
+        assert_eq!(ops, vec![Op::delete(0, 3), Op::insert(0, 3)]);
+        assert_round_trip(&a, &b, &ops);
+    }
+
+    #[test]
+    fn test_limited_with_common_ends_keeps_them() {
+        let a = s(&["p", "a", "b", "c", "q"]);
+        let b = s(&["p", "x", "y", "z", "q"]);
+        let ops = compute_diff_limited(&a, &b, Some(0));
+        assert_eq!(
+            ops,
+            vec![
+                Op::equal(0, 1),
+                Op::delete(1, 3),
+                Op::insert(1, 3),
+                Op::equal(4, 1),
+            ]
+        );
+        assert_round_trip(&a, &b, &ops);
+    }
+
+    #[test]
+    fn test_limited_high_limit_matches_unlimited() {
+        let a = s(&["a", "b", "c"]);
+        let b = s(&["x", "y", "z"]);
+        assert_eq!(
+            compute_diff_limited(&a, &b, Some(1_000_000)),
+            compute_diff(&a, &b)
+        );
+    }
+
+    #[test]
+    fn test_limited_none_matches_unlimited() {
+        let a = s(&["a", "b", "c"]);
+        let b = s(&["x", "y", "z"]);
+        assert_eq!(compute_diff_limited(&a, &b, None), compute_diff(&a, &b));
+    }
+
     proptest::proptest! {
         #[test]
         fn prop_myers_minimal_small_alphabet(
@@ -568,6 +696,17 @@ mod tests {
             let ops = compute_diff(&a_refs, &b_refs);
             assert_round_trip(&a_refs, &b_refs, &ops);
             assert_eq!(sum_eq(&ops), lcs_len(&a_refs, &b_refs), "not minimal");
+        }
+
+        #[test]
+        fn prop_limited_round_trip(
+            a in proptest::collection::vec("[a-c]{0,4}", 0..12),
+            b in proptest::collection::vec("[a-c]{0,4}", 0..12),
+        ) {
+            let a_refs: Vec<&str> = a.iter().map(String::as_str).collect();
+            let b_refs: Vec<&str> = b.iter().map(String::as_str).collect();
+            let ops = compute_diff_limited(&a_refs, &b_refs, Some(4));
+            assert_round_trip(&a_refs, &b_refs, &ops);
         }
     }
 }

@@ -1,4 +1,5 @@
-use crate::diff::core::{compute_histogram_diff, myers::compute_diff};
+use crate::diff::core::compute_histogram_diff_limited;
+use crate::diff::core::myers::compute_diff_limited;
 use crate::diff::data::{Diff, ensure_within_u32};
 use crate::diff::modes::{DiffAlgorithm, DiffOptions, keys_for};
 use regex::Regex;
@@ -47,8 +48,10 @@ pub fn diff_words_with(
     let old_refs: Vec<&str> = old_keys.iter().map(String::as_str).collect();
     let new_refs: Vec<&str> = new_keys.iter().map(String::as_str).collect();
     let diff_ops = match algorithm {
-        DiffAlgorithm::Histogram => compute_histogram_diff(&old_refs, &new_refs),
-        DiffAlgorithm::Myers => compute_diff(&old_refs, &new_refs),
+        DiffAlgorithm::Histogram => {
+            compute_histogram_diff_limited(&old_refs, &new_refs, opts.max_edit_distance)
+        }
+        DiffAlgorithm::Myers => compute_diff_limited(&old_refs, &new_refs, opts.max_edit_distance),
     };
 
     Ok(Diff {
@@ -155,6 +158,7 @@ mod tests {
             ignore_whitespace: true,
             ignore_case: false,
             ignore_blank_lines: false,
+            max_edit_distance: None,
         };
         let diff = diff_words_with(
             "hello  world\n",
@@ -175,6 +179,7 @@ mod tests {
             ignore_whitespace: false,
             ignore_case: true,
             ignore_blank_lines: false,
+            max_edit_distance: None,
         };
         let diff = diff_words_with(
             "Hello World\n",

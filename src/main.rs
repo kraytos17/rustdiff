@@ -16,7 +16,7 @@ use std::{
 fn main() {
     let opts = Cli::parse();
     process::exit(match run(&opts) {
-        Ok(has_changes) if opts.exit_code && has_changes => 1,
+        Ok(has_changes) if opts.behavior.exit_code && has_changes => 1,
         Ok(_) => 0,
         Err(message) => {
             eprintln!("{message}");
@@ -33,14 +33,15 @@ fn run(opts: &Cli) -> Result<bool, String> {
         return Err("cannot read both inputs from stdin".to_string());
     }
 
-    let old = read_source(&opts.old_file, !opts.no_mmap)?;
-    let new = read_source(&opts.new_file, !opts.no_mmap)?;
+    let old = read_source(&opts.old_file, !opts.behavior.no_mmap)?;
+    let new = read_source(&opts.new_file, !opts.behavior.no_mmap)?;
     let old_text = source_str(&old, &opts.old_file)?;
     let new_text = source_str(&new, &opts.new_file)?;
     let diff_opts = DiffOptions {
-        ignore_whitespace: opts.ignore_whitespace,
-        ignore_case: opts.ignore_case,
-        ignore_blank_lines: opts.ignore_blank_lines,
+        ignore_whitespace: opts.ignore.whitespace,
+        ignore_case: opts.ignore.case,
+        ignore_blank_lines: opts.ignore.blank_lines,
+        max_edit_distance: opts.max_edit_distance,
     };
 
     let diff = if opts.word {
@@ -49,7 +50,7 @@ fn run(opts: &Cli) -> Result<bool, String> {
         diff_lines_with(old_text, new_text, opts.diff_algorithm, diff_opts)
     }?;
 
-    if opts.verify {
+    if opts.behavior.verify {
         let old_refs: Vec<&str> = diff.old_tokens.iter().map(String::as_str).collect();
         let new_refs: Vec<&str> = diff.new_tokens.iter().map(String::as_str).collect();
         if !diff.validate_round_trip(&old_refs, &new_refs) {
@@ -58,7 +59,7 @@ fn run(opts: &Cli) -> Result<bool, String> {
     }
 
     let has_changes = diff.ops.iter().any(|op| op.kind != OpKind::Equal);
-    if opts.summary {
+    if opts.format.summary {
         let stats = DiffStats::from_ops(&diff.ops);
         println!(
             "Changes: +{}, -{} (total {})",
@@ -77,9 +78,10 @@ fn run(opts: &Cli) -> Result<bool, String> {
     write_output(output_path, &render_text(opts, &diff, use_color))
         .map_err(|e| format!("Error writing diff to {output_path}: {e}"))?;
 
-    if opts.html {
+    if opts.html.enabled {
         let html_path = opts
-            .html_output
+            .html
+            .output
             .as_ref()
             .map_or_else(|| format!("{}.html", html_base(output_path)), Clone::clone);
         std::fs::write(&html_path, render_html(opts, &diff))
@@ -95,18 +97,18 @@ fn run(opts: &Cli) -> Result<bool, String> {
 /// Pick the terminal text renderer from the requested mode/format flags.
 fn render_text(opts: &Cli, diff: &Diff, use_color: bool) -> String {
     if opts.word {
-        if opts.unified.is_some() || opts.compact {
+        if opts.format.unified.is_some() || opts.format.compact {
             render_unified_diff(
                 &opts.old_file,
                 &opts.new_file,
                 diff,
-                opts.unified.unwrap_or(0),
+                opts.format.unified.unwrap_or(0),
                 use_color,
             )
         } else {
             render_word_diff(diff, use_color)
         }
-    } else if let Some(context_lines) = opts.unified {
+    } else if let Some(context_lines) = opts.format.unified {
         render_unified_diff(
             &opts.old_file,
             &opts.new_file,
@@ -114,7 +116,7 @@ fn render_text(opts: &Cli, diff: &Diff, use_color: bool) -> String {
             context_lines,
             use_color,
         )
-    } else if opts.compact {
+    } else if opts.format.compact {
         render_unified_diff(&opts.old_file, &opts.new_file, diff, 0, use_color)
     } else {
         render_line_diff(diff, use_color)
@@ -123,17 +125,17 @@ fn render_text(opts: &Cli, diff: &Diff, use_color: bool) -> String {
 
 /// Pick the HTML renderer for the requested view.
 fn render_html(opts: &Cli, diff: &Diff) -> String {
-    if opts.side_by_side {
-        render_side_by_side_html(diff, &opts.old_file, &opts.new_file, opts.html_theme)
+    if opts.html.side_by_side {
+        render_side_by_side_html(diff, &opts.old_file, &opts.new_file, opts.html.theme)
     } else if opts.word {
-        render_word_html(diff, opts.html_theme)
+        render_word_html(diff, opts.html.theme)
     } else {
         render_unified_html(
             diff,
-            opts.unified.unwrap_or(3),
+            opts.format.unified.unwrap_or(3),
             &opts.old_file,
             &opts.new_file,
-            opts.html_theme,
+            opts.html.theme,
         )
     }
 }
@@ -179,6 +181,7 @@ fn stdout_is_terminal() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rustdiff::cli::{BehaviorArgs, HtmlArgs, IgnoreArgs, OutputArgs};
     use rustdiff::diff::modes::DiffAlgorithm;
 
     fn cli(old_file: String, new_file: String) -> Cli {
@@ -188,21 +191,29 @@ mod tests {
             output: "-".to_string(),
             color: ColorMode::Never,
             diff_algorithm: DiffAlgorithm::Histogram,
-            html: false,
-            html_theme: None,
-            html_output: None,
-            side_by_side: false,
-            unified: None,
-            compact: false,
-            summary: false,
+            html: HtmlArgs {
+                enabled: false,
+                side_by_side: false,
+                theme: None,
+                output: None,
+            },
+            format: OutputArgs {
+                unified: None,
+                compact: false,
+                summary: false,
+            },
             word: false,
-            line: false,
-            exit_code: false,
-            no_mmap: true,
-            ignore_whitespace: false,
-            ignore_case: false,
-            ignore_blank_lines: false,
-            verify: false,
+            behavior: BehaviorArgs {
+                exit_code: false,
+                no_mmap: true,
+                verify: false,
+            },
+            ignore: IgnoreArgs {
+                whitespace: false,
+                case: false,
+                blank_lines: false,
+            },
+            max_edit_distance: None,
         }
     }
 

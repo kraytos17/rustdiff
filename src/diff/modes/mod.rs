@@ -39,6 +39,10 @@ pub struct DiffOptions {
     /// Treat all blank lines as identical (line mode only; word mode disables
     /// this because line breaks are structural there).
     pub ignore_blank_lines: bool,
+    /// Cap on the Myers edit distance per region. Regions whose edit distance
+    /// would exceed this degrade to a full delete + insert (still a valid edit
+    /// script, just not minimal). `None` disables the cap.
+    pub max_edit_distance: Option<u32>,
 }
 
 impl DiffOptions {
@@ -92,6 +96,7 @@ mod tests {
             ignore_whitespace: true,
             ignore_case: false,
             ignore_blank_lines: false,
+            max_edit_distance: None,
         };
         assert_eq!(normalize_token("a \t b", opts), "ab");
         assert_eq!(normalize_token("  ", opts), "");
@@ -103,6 +108,7 @@ mod tests {
             ignore_whitespace: false,
             ignore_case: true,
             ignore_blank_lines: false,
+            max_edit_distance: None,
         };
         assert_eq!(normalize_token("Hello", opts), "hello");
     }
@@ -113,6 +119,7 @@ mod tests {
             ignore_whitespace: true,
             ignore_case: true,
             ignore_blank_lines: false,
+            max_edit_distance: None,
         };
         assert_eq!(normalize_token(" HeLLo ", opts), "hello");
     }
@@ -136,6 +143,7 @@ mod tests {
                 ignore_whitespace: true,
                 ignore_case: true,
                 ignore_blank_lines: false,
+                max_edit_distance: None,
             },
         );
 

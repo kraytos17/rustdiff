@@ -5,7 +5,7 @@ pub mod histogram;
 /// Linear-space Myers diff.
 pub mod myers;
 
-pub use histogram::compute_histogram_diff;
+pub use histogram::{compute_histogram_diff, compute_histogram_diff_limited};
 
 /// A matching run: `a[x..u] == b[y..v]`.
 #[derive(Debug, Clone, Copy)]

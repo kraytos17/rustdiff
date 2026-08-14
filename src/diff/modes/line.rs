@@ -1,4 +1,5 @@
-use crate::diff::core::{compute_histogram_diff, myers::compute_diff};
+use crate::diff::core::compute_histogram_diff_limited;
+use crate::diff::core::myers::compute_diff_limited;
 use crate::diff::data::{Diff, Op, OpKind, ensure_within_u32};
 use crate::diff::modes::{DiffAlgorithm, DiffOptions, keys_for};
 
@@ -35,8 +36,10 @@ pub fn diff_lines_with(
     let old_refs: Vec<&str> = old_keys.iter().map(String::as_str).collect();
     let new_refs: Vec<&str> = new_keys.iter().map(String::as_str).collect();
     let mut diff_ops = match algorithm {
-        DiffAlgorithm::Histogram => compute_histogram_diff(&old_refs, &new_refs),
-        DiffAlgorithm::Myers => compute_diff(&old_refs, &new_refs),
+        DiffAlgorithm::Histogram => {
+            compute_histogram_diff_limited(&old_refs, &new_refs, opts.max_edit_distance)
+        }
+        DiffAlgorithm::Myers => compute_diff_limited(&old_refs, &new_refs, opts.max_edit_distance),
     };
     if opts.ignore_blank_lines {
         drop_blank_only_runs(&mut diff_ops, &old_lines, &new_lines);
@@ -86,6 +89,7 @@ mod tests {
             ignore_whitespace,
             ignore_case,
             ignore_blank_lines: false,
+            max_edit_distance: None,
         }
     }
 
@@ -178,6 +182,7 @@ mod tests {
             ignore_whitespace: false,
             ignore_case: false,
             ignore_blank_lines: true,
+            max_edit_distance: None,
         };
 
         let diff =
@@ -194,6 +199,7 @@ mod tests {
             ignore_whitespace: false,
             ignore_case: false,
             ignore_blank_lines: true,
+            max_edit_distance: None,
         };
 
         let diff =

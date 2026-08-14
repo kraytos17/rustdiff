@@ -443,3 +443,40 @@ fn html_output_writes_to_explicit_path() {
         "no derived html expected"
     );
 }
+
+#[test]
+fn max_edit_distance_degrades_to_delete_insert() {
+    let dir = temp_dir("max_edit");
+    let old = dir.join("old.txt");
+    let new = dir.join("new.txt");
+    write(&old, "one\ntwo\nthree\n");
+    write(&new, "A\nB\nC\n");
+    bin()
+        .args([
+            "--max-edit-distance",
+            "0",
+            "--exit-code",
+            "-o",
+            "-",
+            old.to_str().unwrap(),
+            new.to_str().unwrap(),
+        ])
+        .assert()
+        .code(1)
+        .stdout(predicate::str::contains("- one"))
+        .stdout(predicate::str::contains("+ A"));
+
+    // --verify must still pass on the degraded (non-minimal) diff.
+    bin()
+        .args([
+            "--max-edit-distance",
+            "0",
+            "--verify",
+            "-o",
+            "-",
+            old.to_str().unwrap(),
+            new.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+}

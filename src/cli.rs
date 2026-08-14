@@ -6,19 +6,12 @@ use clap::{ArgAction, ArgGroup, Parser, ValueEnum, ValueHint};
 ///
 /// Supports line and word-level modes, colorized output, compact diffs,
 /// and unified diff formatting with context lines.
-#[allow(clippy::struct_excessive_bools)]
 #[derive(Parser, Debug)]
 #[command(
     author = "Soumil Kumar",
     version,
     about = "A high-performance, pure Rust diff generator",
     disable_help_subcommand = true,
-    group(
-        ArgGroup::new("diff_mode")
-            .args(["line", "word"])
-            .multiple(false)
-            .required(false)
-    ),
     group(
         ArgGroup::new("output_mode")
             .args(["unified", "compact", "summary"])
@@ -72,26 +65,45 @@ pub struct Cli {
     )]
     pub diff_algorithm: DiffAlgorithm,
 
+    /// HTML export options
+    #[command(flatten)]
+    pub html: HtmlArgs,
+
+    /// Output format: unified, compact, or summary
+    #[command(flatten)]
+    pub format: OutputArgs,
+
+    /// Use word-level diff instead of line-level
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        help = "Use word-level diff instead of line-level"
+    )]
+    pub word: bool,
+
+    /// Process/I-O behavior toggles
+    #[command(flatten)]
+    pub behavior: BehaviorArgs,
+
+    /// Ignore-* normalization flags
+    #[command(flatten)]
+    pub ignore: IgnoreArgs,
+
+    /// Cap on the Myers edit distance per region
+    #[arg(
+        long,
+        value_name = "N",
+        help = "Degrade regions whose Myers edit distance would exceed N to a full delete+insert (off by default)"
+    )]
+    pub max_edit_distance: Option<u32>,
+}
+
+/// HTML export options (`--html`, `--side-by-side`, `--html-theme`, `--html-output`).
+#[derive(clap::Args, Debug)]
+pub struct HtmlArgs {
     /// Export the diff as HTML
-    #[arg(long, help = "Generate colorized HTML diff output")]
-    pub html: bool,
-
-    /// Explicit HTML output path (default: derived from --output)
-    #[arg(
-        long,
-        value_name = "FILE",
-        value_hint = ValueHint::FilePath,
-        help = "Write the HTML diff here instead of deriving the path from --output"
-    )]
-    pub html_output: Option<String>,
-
-    /// HTML color theme (default: follow the viewer's OS preference)
-    #[arg(
-        long,
-        value_enum,
-        help = "HTML color theme: dark or light (default: follow the viewer's OS preference)"
-    )]
-    pub html_theme: Option<HtmlTheme>,
+    #[arg(id = "html", long, help = "Generate colorized HTML diff output")]
+    pub enabled: bool,
 
     /// Generate side-by-side HTML diff (implies --html)
     #[arg(
@@ -102,6 +114,28 @@ pub struct Cli {
     )]
     pub side_by_side: bool,
 
+    /// HTML color theme (default: follow the viewer's OS preference)
+    #[arg(
+        long,
+        value_enum,
+        help = "HTML color theme: dark or light (default: follow the viewer's OS preference)"
+    )]
+    pub theme: Option<HtmlTheme>,
+
+    /// Explicit HTML output path (default: derived from --output)
+    #[arg(
+        id = "html_output",
+        long = "html-output",
+        value_name = "FILE",
+        value_hint = ValueHint::FilePath,
+        help = "Write the HTML diff here instead of deriving the path from --output"
+    )]
+    pub output: Option<String>,
+}
+
+/// Output format: unified, compact, or summary.
+#[derive(clap::Args, Debug)]
+pub struct OutputArgs {
     /// Number of context lines to display in unified mode
     #[arg(
         short = 'u',
@@ -126,23 +160,11 @@ pub struct Cli {
         help = "Show a summary (insertions/deletions only)"
     )]
     pub summary: bool,
+}
 
-    /// Use word-level diff instead of line-level
-    #[arg(
-        long,
-        action = ArgAction::SetTrue,
-        help = "Use word-level diff instead of line-level"
-    )]
-    pub word: bool,
-
-    /// Use line-level diff (default)
-    #[arg(
-        long,
-        action = ArgAction::SetTrue,
-        help = "Use line-level diff (default mode)"
-    )]
-    pub line: bool,
-
+/// Process and I/O behavior toggles.
+#[derive(clap::Args, Debug)]
+pub struct BehaviorArgs {
     /// Exit with 0 if no differences, 1 if differences, 2 on error (POSIX diff)
     #[arg(
         long,
@@ -159,6 +181,18 @@ pub struct Cli {
     )]
     pub no_mmap: bool,
 
+    /// Verify the diff is reversible before writing output
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        help = "Verify the computed diff is reversible (round-trip check)"
+    )]
+    pub verify: bool,
+}
+
+/// Flags that normalize tokens before diffing.
+#[derive(clap::Args, Debug)]
+pub struct IgnoreArgs {
     /// Ignore whitespace differences within tokens
     #[arg(
         short = 'w',
@@ -166,7 +200,7 @@ pub struct Cli {
         action = ArgAction::SetTrue,
         help = "Ignore whitespace differences within tokens (line and word mode)"
     )]
-    pub ignore_whitespace: bool,
+    pub whitespace: bool,
 
     /// Ignore case differences between tokens
     #[arg(
@@ -175,7 +209,7 @@ pub struct Cli {
         action = ArgAction::SetTrue,
         help = "Ignore case differences when comparing tokens"
     )]
-    pub ignore_case: bool,
+    pub case: bool,
 
     /// Ignore blank-line changes (line mode)
     #[arg(
@@ -184,15 +218,7 @@ pub struct Cli {
         action = ArgAction::SetTrue,
         help = "Treat all blank lines as identical, so blank-line changes are ignored (line mode)"
     )]
-    pub ignore_blank_lines: bool,
-
-    /// Verify the diff is reversible before writing output
-    #[arg(
-        long,
-        action = ArgAction::SetTrue,
-        help = "Verify the computed diff is reversible (round-trip check)"
-    )]
-    pub verify: bool,
+    pub blank_lines: bool,
 }
 
 /// When to use ANSI terminal colors.

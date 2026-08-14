@@ -59,7 +59,6 @@ Pass `-` for either to read that side from stdin (at most one side may be
 | `--compact` | Show only changes (unified with 0 context lines) |
 | `--summary` | Print insertion/deletion counts and exit |
 | `--word` | Word-level diff with inline replacements |
-| `--line` | Line-level diff (default) |
 | `--diff-algorithm <algo>` | `histogram` (default) or `myers` |
 | `--color <mode>` | `auto`, `always`, or `never` (default: `auto`) |
 | `--exit-code` | Exit `0` if no differences, `1` if differences found, `2` on error |
@@ -68,6 +67,7 @@ Pass `-` for either to read that side from stdin (at most one side may be
 | `-B, --ignore-blank-lines` | Ignore changes that are only blank lines (line mode) |
 | `--no-mmap` | Read files into memory instead of memory-mapping large files |
 | `--verify` | Verify the computed diff is reversible before writing output |
+| `--max-edit-distance <N>` | Degrade regions whose Myers edit distance would exceed `N` to a full delete+insert (off by default) |
 | `--html` | Write an HTML diff (layout chosen below) |
 | `--html-theme <theme>` | `dark` or `light`; default follows the viewer's OS preference |
 | `--html-output <FILE>` | Write the HTML here instead of deriving it from `--output` |
@@ -136,6 +136,10 @@ rustdiff build/gen.rs expected.rs --exit-code -o - || exit 1
 
 # Verify the diff is reversible before writing it
 rustdiff old.txt new.txt --verify
+
+# Cap Myers work on pathological inputs (degrade expensive regions to
+# delete+insert instead of spinning)
+rustdiff old.txt new.txt --max-edit-distance 1000000
 
 # Write a unified HTML diff
 rustdiff old.txt new.txt -o my.diff --html
@@ -219,6 +223,11 @@ With colors enabled, deletions are red and insertions green.
 Both operate over interned token IDs and emit run-length-encoded ops, so a
 large mostly-unchanged file produces only a handful of diff records.
 
+`--max-edit-distance <N>` caps how far the Myers search will go: any region
+whose edit distance would exceed `N` degrades to a full delete + insert (still
+a valid, reversible edit script, just not minimal). It is off by default and
+mainly useful for bounding worst-case time on pathological inputs.
+
 ## Parallel diffing
 
 Building with `--features parallel` runs the histogram's independent
@@ -241,8 +250,12 @@ let diff = diff_lines("a\nb\n", "a\nX\n", DiffAlgorithm::Histogram).unwrap();
 let text = render_unified_diff("old", "new", &diff, 3, true);
 let stats = DiffStats::from_ops(&diff.ops);
 
-// Normalization options are also available:
-let opts = DiffOptions { ignore_case: true, ..DiffOptions::default() };
+// Normalization and a Myers edit-distance cap are also available:
+let opts = DiffOptions {
+    ignore_case: true,
+    max_edit_distance: Some(1000),
+    ..DiffOptions::default()
+};
 let diff = diff_lines_with("a\nB\n", "A\nb\n", DiffAlgorithm::Myers, opts)?;
 ```
 
@@ -250,7 +263,9 @@ Key types and functions:
 
 - `diff::modes::{diff_lines, diff_words, diff_lines_with, diff_words_with}`,
   `DiffAlgorithm`, `DiffOptions`
-- `diff::core::histogram::compute_histogram_diff`, `diff::core::myers::compute_diff`
+- `diff::core::histogram::{compute_histogram_diff, compute_histogram_diff_limited}`,
+  `diff::core::myers::{compute_diff, compute_diff_limited}` (the `_limited`
+  variants accept an `Option<u32>` edit-distance cap)
 - `diff::data::{Diff, Op, OpKind, Hunk, DiffStats}`, `Diff::validate_round_trip`
 - `diff::intern::Interner`
 - `diff::render::{render_line_diff, render_unified_diff, render_word_diff}`
@@ -275,6 +290,17 @@ cargo run --example gen-man > rustdiff.1
 ```
 
 ## Development
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for commit conventions and the release
+workflow.
+
+The changelog and GitHub release notes are generated from conventional commits
+with [`git-cliff`](https://git-cliff.org) (config in `cliff.toml`). Regenerate
+`CHANGELOG.md` at release time with:
+
+```sh
+git cliff -o CHANGELOG.md
+```
 
 ```sh
 cargo fmt --all -- --check              # format

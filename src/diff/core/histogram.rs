@@ -20,6 +20,13 @@ const MAX_OCCURRENCES: u32 = 64;
 /// `&str` ends, intern the remaining middle, run the `u32` core, reattach.
 #[must_use]
 pub fn compute_histogram_diff(a: &[&str], b: &[&str]) -> Vec<Op> {
+    compute_histogram_diff_limited(a, b, None)
+}
+
+/// Like [`compute_histogram_diff`], but caps the Myers fallback's edit distance
+/// per region (see [`crate::diff::core::myers::compute_diff_limited`]).
+#[must_use]
+pub fn compute_histogram_diff_limited(a: &[&str], b: &[&str], max_edit: Option<u32>) -> Vec<Op> {
     let (prefix_len, suffix_len, a_mid, b_mid) = trim_common_ends(a, b);
     if a_mid.is_empty() && b_mid.is_empty() {
         return if a.is_empty() {
@@ -44,7 +51,13 @@ pub fn compute_histogram_diff(a: &[&str], b: &[&str]) -> Vec<Op> {
         }
     } else {
         let (_interner, a_ids, b_ids) = intern_both(a_mid, b_mid);
-        histogram_inner_u32(&a_ids, &b_ids, u32_len(prefix_len), u32_len(prefix_len))
+        histogram_inner_u32(
+            &a_ids,
+            &b_ids,
+            u32_len(prefix_len),
+            u32_len(prefix_len),
+            max_edit,
+        )
     };
 
     let mut result = Vec::with_capacity(3);
@@ -62,15 +75,21 @@ pub fn compute_histogram_diff(a: &[&str], b: &[&str]) -> Vec<Op> {
     result
 }
 
-fn histogram_inner_u32(a: &[u32], b: &[u32], base_a: u32, base_b: u32) -> Vec<Op> {
+fn histogram_inner_u32(
+    a: &[u32],
+    b: &[u32],
+    base_a: u32,
+    base_b: u32,
+    max_edit: Option<u32>,
+) -> Vec<Op> {
     if a.is_empty() || b.is_empty() {
-        return diff_u32(a, b, base_a, base_b);
+        return diff_u32(a, b, base_a, base_b, max_edit);
     }
 
     let counts_a = build_counts(a);
     let counts_b = build_counts(b);
     let Some(id) = find_rarest_common_token(&counts_a, &counts_b) else {
-        return diff_u32(a, b, base_a, base_b);
+        return diff_u32(a, b, base_a, base_b, max_edit);
     };
 
     let apos = positions_of(a, id);
@@ -84,6 +103,7 @@ fn histogram_inner_u32(a: &[u32], b: &[u32], base_a: u32, base_b: u32) -> Vec<Op
             base_a + u32_len(snake.u),
             base_b + u32_len(snake.v),
         ),
+        max_edit,
     );
 
     left.push(Op::equal(base_a + u32_len(snake.x), u32_len(snake.len())));
@@ -97,6 +117,7 @@ fn histogram_inner_u32(a: &[u32], b: &[u32], base_a: u32, base_b: u32) -> Vec<Op
 fn parallel_halves(
     left: (&[u32], &[u32], u32, u32),
     right: (&[u32], &[u32], u32, u32),
+    max_edit: Option<u32>,
 ) -> (Vec<Op>, Vec<Op>) {
     #[cfg(feature = "parallel")]
     {
@@ -105,14 +126,14 @@ fn parallel_halves(
         let total = left.0.len() + left.1.len() + right.0.len() + right.1.len();
         if total >= PARALLEL_THRESHOLD {
             return rayon::join(
-                || histogram_inner_u32(left.0, left.1, left.2, left.3),
-                || histogram_inner_u32(right.0, right.1, right.2, right.3),
+                || histogram_inner_u32(left.0, left.1, left.2, left.3, max_edit),
+                || histogram_inner_u32(right.0, right.1, right.2, right.3, max_edit),
             );
         }
     }
     (
-        histogram_inner_u32(left.0, left.1, left.2, left.3),
-        histogram_inner_u32(right.0, right.1, right.2, right.3),
+        histogram_inner_u32(left.0, left.1, left.2, left.3, max_edit),
+        histogram_inner_u32(right.0, right.1, right.2, right.3, max_edit),
     )
 }
 
@@ -347,6 +368,15 @@ mod tests {
         let ops = compute_histogram_diff(&a, &b);
         assert_round_trip(&a, &b, &ops);
         assert_eq!(ops, vec![Op::insert(0, 1)]);
+    }
+
+    #[test]
+    fn test_histogram_limited_bails() {
+        let a = s(&["a", "b", "c"]);
+        let b = s(&["x", "y", "z"]);
+        let ops = compute_histogram_diff_limited(&a, &b, Some(0));
+        assert_eq!(ops, vec![Op::delete(0, 3), Op::insert(0, 3)]);
+        assert_round_trip(&a, &b, &ops);
     }
 
     #[test]
