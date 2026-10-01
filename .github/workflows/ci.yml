@@ -188,7 +188,7 @@ jobs:
           path: artifacts
 
       - name: Generate release notes
-        uses: orhun/git-cliff-action@v3
+        uses: orhun/git-cliff-action@v4
         with:
           args: --latest --strip all -o release-notes.md
 
